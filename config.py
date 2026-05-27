@@ -42,7 +42,7 @@ class PipelineConfig:
     load_in_4bit: bool = True
     bnb_double_quant: bool = True
     bnb_quant_type: str = "nf4"
-    bnb_compute_dtype: torch.dtype = torch.bfloat16
+    bnb_compute_dtype: torch.dtype = torch.float16
 
     # --- Schema Linking ---
     semantic_similarity_threshold: float = 0.35
