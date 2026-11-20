@@ -907,9 +907,33 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 
 **Tes:** data Spider mini sintetis (1 DB, 2 dev, 2 train) dengan CoreNLP 3.9.2 (versi yang sama dengan rilis 2018-10-05, dari Maven Central, karena nlp.stanford.edu tidak bisa diakses dari mesin uji): token ter-lemma (`were held` -> `be hold`), `sc_link` (CEM/CPM/TEM), `cv_link` (`glebe`/`park` EXACTMATCH, `2014` NUMBER), jumlah baris cocok, `check_preprocessed()` lolos, server CoreNLP berhenti setelah proses selesai. Jalur `load_dail()` -> `run_preprocess()` juga dites. **Belum dijalankan:** unduhan CoreNLP dari nlp.stanford.edu dan `apt-get` Java di Kaggle, dan Spider asli (waktu proses belum diukur).
 
+## 45. TEP dengan DAIL-SQL sebagai B, di notebook sendiri (`eval_tep.ipynb`) (2026-11-20)
+
+**Keputusan peneliti:** TEP di `eval_pipeline.ipynb` salah sejak baseline skripsi diganti DAIL-SQL (poin 38, 43): B di rumus masih GraphRAG 1-Stage. TEP yang benar adalah **2-Stage vs DAIL-SQL** dan **1-Stage vs DAIL-SQL**, untuk tiap model (3B, 7B, 14B). TEP dikeluarkan dari `eval_pipeline` dan dihitung di notebook baru dari hasil run yang sudah disimpan, jadi run GPU tidak perlu diulang.
+
+**Rumus tidak berubah.** `compute_tep()` (`src/metrics/tep.py`) dan `metrics_summary._tep()` tetap dipakai; argumennya diganti nama menjadi `b_logs`/`c_logs`. B = DAIL-SQL, c = 1-Stage atau 2-Stage, T = T_in + α × T_out per pertanyaan lalu dirata-rata (α = `cfg.token_output_weight`, sama untuk ketiga kondisi, dihitung ulang dari token mentah).
+
+**Yang dihapus dari `eval_pipeline` (TEP 2-Stage vs 1-Stage):**
+- `metrics_summary.build_metrics_results()`: blok `token_tep` tidak lagi berisi `tep`. Nama kunci `token_tep` sengaja tetap, supaya `metrics_results.json` lama (run 7B, masih berisi `tep`) tetap terbaca oleh `combine_models.py` dan `export_excel.py`; `tep` lama itu diabaikan.
+- `result_tables.py`: baris `TEP (2-stage vs 1-stage)` di tabel ringkasan, tabel TEP di metrik 5, dan tabel TEP Dimensi 1. Sheet `M5 Token TEP` menjadi `M5 Token`.
+- **Dimensi 1** (`dim1_efficiency.py`): langkah 3 guide (TEP + interpretasi) tidak lagi dihitung di sini, karena Dimensi 1 di `eval_pipeline` hanya punya 1-Stage dan 2-Stage. Langkah 1-2 (Token, EX) tetap. Langkah 3 ada di `eval_tep.ipynb`, dengan urutan kolom yang sama (EX dan T mentah dulu, baru TEP).
+- `combine_models.py`: kolom `TEP (2-stage vs 1-stage)`.
+- `tep.py`: teks interpretasi TEP < 0 dikembalikan ke kalimat guide ("dibanding baseline"; baseline = DAIL-SQL), dan pesan error ΔT = 0 tidak lagi menyebut 1-Stage. Rumus dan EPSILON tidak berubah.
+
+**Yang baru:** `src/experiments/tep_steps.py` (kode custom) + `notebooks/eval_tep.ipynb`, tanpa GPU:
+- **Sumber:** hasil zip yang diekstrak (`hasil_<MODEL>.zip` ke `outputs/models/`, `hasil_dail_<MODEL>.zip` ke `outputs/models/<model>/`): metadata dari `tables/metrics_results.json` / `tables/dail/dail_metrics_results.json`, raw_logs dari `raw_logs/` di sebelahnya. Kalau zip tidak ada, sheet `Per Query` dari Excel unduhan (`hasil_skripsi_<MODEL>.xlsx`, `hasil_dail_<MODEL>.xlsx` di `outputs/tables/`), yang memuat EX, T_in, T_out per pertanyaan. Zip diutamakan karena metadatanya bisa dicek. Dua sumber sejenis untuk model dan kondisi yang sama = dilewati dengan catatan.
+- **Pengecekan:** model sama (ukuran; nama lengkap kalau ada metadata), pertanyaan sama persis (`query_id`, `db_id`, gold SQL, jadi `SAMPLE_RATIO` dan seed sama), DAIL-SQL dengan k = `cfg.dail_k_shot` (9). Run DAIL ablation k lain diabaikan dengan catatan. Yang gagal tetap tampil sebagai baris `skipped` dengan alasan; model yang belum punya hasil juga. Run percobaan dan sumber Excel diberi peringatan di kolom `Note`.
+- **k few-shot tidak disyaratkan sama.** DAIL memakai k = 9 dan seleksi contohnya sendiri, 1-Stage/2-Stage memakai `few_shot_k` hasil ablation (run 7B: k = 0). Ini disengaja (poin 43: best config vs best config), jadi k hanya ditampilkan (`Few-shot k`, `DAIL k`). Akibatnya ΔT terhadap DAIL memuat selisih token contoh few-shot dan schema penuh DAIL, bukan hanya selisih retrieval. **Wajib disebut di metodologi.**
+- **Output:** satu tabel (model × pipeline): EX dan T DAIL-SQL dan pipeline, ΔEX (pp), ΔT, ΔT relatif, TEP, k, catatan, sumber. Disimpan ke `outputs/tables/hasil_tep.{json,xlsx}` (sheet `TEP`, `Sources`). Tanpa kolom interpretasi, sama dengan `result_tables.py`.
+- **Catatan interpretasi:** tabel interpretasi guide (Dimensi 1) mengasumsikan ΔT < 0. Kalau pipeline memakai token lebih banyak dari DAIL-SQL (ΔT > 0), TEP > 0 berarti EX naik, bukan trade-off. Tanda ΔEX dan ΔT ditampilkan di tabel supaya ini terbaca; teks guide tidak diubah.
+
+**Yang tetap:** `eval_dail.ipynb` masih menampilkan TEP terhadap DAIL-SQL untuk satu model kalau raw_logs 1-Stage/2-Stage ada di folder yang sama (fungsi yang sama, poin 43). `eval_tep.ipynb` adalah tempat TEP ketiga model dalam satu tabel. Prompt, retrieval, dan metrik lain tidak berubah.
+
+**Tes:** `python tests/test_tep_vs_dail.py` (sintetis: zip, Excel dari `rt.per_query()` + `Sheet`, prioritas zip, DAIL k = 5 diabaikan, pertanyaan berbeda, DAIL belum ada, ΔT = 0, simpan JSON/Excel). `tests/test_metrics_summary.py` disesuaikan. Notebook dijalankan lokal atas `outputs/tables/hasil_skripsi_7B.xlsx` (run 7B peneliti): 1-Stage EX 70.50% dan T 419.1 sama dengan sheet `Summary` run itu; semua baris `skipped` karena hasil DAIL-SQL belum ada.
+
 ### F. Baseline DAIL-SQL belum diimplementasikan
 
-🟡 **Sebagian (2026-11-11) — lihat poin 43.** DAIL-SQL sudah bisa dijalankan dan dievaluasi lewat `notebooks/eval_dail.ipynb`; penggabungan tiga kondisi (Excel, dimensi, `combine_models.py`) belum. Teks asli di bawah dipertahankan sebagai catatan historis.
+🟡 **Sebagian.** Pembanding TEP diputuskan 2026-11-20 (poin 45): B = DAIL-SQL untuk 1-Stage dan 2-Stage, di `eval_tep.ipynb`. Yang masih terbuka: Dimensi 2-6 dengan DAIL dan satu Excel gabungan tiga kondisi. Status 2026-11-11 (poin 43): DAIL-SQL sudah bisa dijalankan dan dievaluasi lewat `notebooks/eval_dail.ipynb`; penggabungan tiga kondisi (Excel, dimensi, `combine_models.py`) belum. Teks asli di bawah dipertahankan sebagai catatan historis.
 
 **Dicatat (2026-11-07, poin 38).** Baseline skripsi adalah DAIL-SQL, dikerjakan nanti. Belum diputuskan: cara DAIL-SQL dijalankan, model dan few-shot yang dipakai supaya sebanding, metrik apa saja yang dibandingkan, dan pembanding TEP (saat ini `B` di rumus = GraphRAG 1-Stage). `combine_models.py` dan kode lain belum punya tempat untuk kondisi ketiga.
 

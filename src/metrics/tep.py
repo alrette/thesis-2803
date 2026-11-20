@@ -4,6 +4,9 @@ tep.py — Token Elasticity of Performance
 Referensi: EVALUATION_ANALYSIS_GUIDE.md Bagian 1.5, sub-bagian "TEP", dan
 Bagian 3 "Dimensi 1" (tabel interpretasi WAJIB).
 
+B = baseline skripsi = DAIL-SQL (poin 45, sebelumnya GraphRAG 1-Stage); G = GraphRAG 1-Stage atau
+2-Stage. Dihitung di notebooks/eval_tep.ipynb (src/experiments/tep_steps.py).
+
 Formula (WAJIB, jangan diubah):
     TEP_G = (delta_EX_G / EX_B) / (delta_T_G / T_B)
     delta_EX_G = EX_G - EX_B
@@ -56,7 +59,7 @@ def compute_tep(
 
     if delta_t == 0:
         raise ValueError(
-            "delta_t (T_G - T_B) = 0 — Token Consumption GraphRAG 1-Stage dan GraphRAG 2-Stage identik, "
+            "delta_t (T_G - T_B) = 0 — Token Consumption kondisi dan pembanding B identik, "
             "TEP tidak terdefinisi (pembagian dengan nol)"
         )
     if t_baseline == 0:
@@ -69,7 +72,7 @@ def compute_tep(
     if -epsilon <= tep <= epsilon:
         interpretation = "Efisiensi token tercapai tanpa trade-off penurunan EX yang signifikan"
     elif tep < 0:
-        interpretation = "Skenario ideal: GraphRAG 2-Stage meningkatkan EX dan menurunkan Token Consumption dibanding GraphRAG 1-Stage"
+        interpretation = "Skenario ideal: GraphRAG meningkatkan EX dan menurunkan Token Consumption dibanding baseline"
     else:
         interpretation = "Ada trade-off: penurunan token disertai penurunan EX"
 

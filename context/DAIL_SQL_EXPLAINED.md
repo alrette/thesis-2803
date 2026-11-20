@@ -270,4 +270,4 @@ Semua terpisah dari hasil 1-Stage/2-Stage, jadi tidak saling menimpa.
 ## 5. Belum diputuskan
 
 - Penggabungan tiga kondisi (DAIL, 1-Stage, 2-Stage) dalam satu Excel, Dimensi 1-6, dan `combine_models.py`.
-- Pasangan TEP yang dilaporkan di skripsi (1-Stage vs DAIL, 2-Stage vs DAIL, dan/atau 2-Stage vs 1-Stage).
+- ~~Pasangan TEP yang dilaporkan~~ — diputuskan 2026-11-20 (`IMPLEMENTATION_DECISIONS.md` poin 45): 1-Stage vs DAIL dan 2-Stage vs DAIL, per model, di `notebooks/eval_tep.ipynb`. TEP 2-Stage vs 1-Stage dihapus dari `eval_pipeline`.

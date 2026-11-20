@@ -59,8 +59,8 @@ def test_six_metrics_values():
     assert abs(m["sla"]["baseline"]["column"]["precision"] - 0.5) < 1e-9
     assert m["token_tep"]["token"]["baseline"]["t_mean"] == 130
     assert m["token_tep"]["token"]["graphrag"]["t_mean"] == 80
-    # TEP = ((1.0 - 0.5) / 0.5) / ((80 - 130) / 130) = -2.6
-    assert abs(m["token_tep"]["tep"]["tep"] - (-2.6)) < 1e-9
+    # TEP tidak lagi dihitung di sini: B = DAIL-SQL, lihat eval_tep.ipynb dan tests/test_tep_vs_dail.py (poin 45)
+    assert set(m["token_tep"]) == {"token"}
     # Grup yang semua variasinya salah dibuang (filter wajib guide 1.6): hanya dev_0001 terhitung.
     assert m["qvt"]["graphrag"] == {"status": "ok", "qvt": 0.5, "queries_included": 1, "queries_total": 2}
 
@@ -69,21 +69,19 @@ def test_summary_table_has_all_six_metrics_in_one_table():
     with tempfile.TemporaryDirectory() as d:
         table = rt.metrics_summary_table(build_metrics_results(BASELINE, GRAPHRAG, 3.0, qvt_dir=_qvt_dir(Path(d))))
     rows = table.set_index("Metric")
-    for metric in ("SLA column F1", "ESM", "EX", "CM SELECT", "CM WHERE", "Mean token consumption (T)", "TEP (2-stage vs 1-stage)", "QVT"):
+    for metric in ("SLA column F1", "ESM", "EX", "CM SELECT", "CM WHERE", "Mean token consumption (T)", "QVT"):
         assert metric in rows.index, metric
     assert "CM HAVING" not in rows.index  # klausa tanpa nilai tidak ditampilkan
     assert abs(rows.loc["EX", "Difference (2-stage − 1-stage)"] - 50.0) < 1e-9
     assert rows.loc["Mean token consumption (T)", "Difference (2-stage − 1-stage)"] == -50
-    assert abs(rows.loc["TEP (2-stage vs 1-stage)", "2-stage"] - (-2.6)) < 1e-9
+    assert not any("TEP" in str(i) for i in rows.index)
     trial = rt.metrics_summary_table(build_metrics_results(BASELINE, GRAPHRAG, 3.0)).set_index("Metric")
     assert "run penuh" in trial.loc["QVT", "Note"]
 
 
-def test_qvt_and_tep_not_available():
+def test_qvt_not_available():
     trial = build_metrics_results(BASELINE, GRAPHRAG, 3.0)
     assert trial["metrics"]["qvt"]["baseline"]["status"] == "not_available"
-    same_t = build_metrics_results(BASELINE, BASELINE, 3.0)
-    assert same_t["metrics"]["token_tep"]["tep"]["status"] == "not_available"
     with tempfile.TemporaryDirectory() as d:
         stale = build_metrics_results(BASELINE, GRAPHRAG, 3.0, qvt_dir=_qvt_dir(Path(d)), qvt_conditions=[])
     assert stale["metrics"]["qvt"]["graphrag"]["status"] == "not_available"
@@ -110,10 +108,11 @@ def test_excel_has_metric_sheets_in_order():
         out = build_workbook(run / "raw_logs", run / "tables", run / "tables" / "hasil.xlsx")
         wb = load_workbook(out)
         names = wb.sheetnames
-        assert names[:7] == ["Summary", "M1 SLA", "M2 ESM", "M3 EX", "M4 CM", "M5 Token TEP", "M6 QVT"]   # tanpa Info
+        assert names[:7] == ["Summary", "M1 SLA", "M2 ESM", "M3 EX", "M4 CM", "M5 Token", "M6 QVT"]   # tanpa Info
         assert all(any(t.ref.startswith("A1:") for t in wb[n].tables.values()) for n in names if wb[n].tables)
         assert names.index("M6 QVT") < names.index("Dimensions") < names.index("Overall")
-        assert any("TEP" in str(c.value) for row in wb["M5 Token TEP"].iter_rows() for c in row)
+        # TEP 2-Stage vs 1-Stage tidak ada lagi di Excel eval_pipeline (poin 45)
+        assert not any(str(c.value).startswith("TEP") for n in names for row in wb[n].iter_rows() for c in row)
         wb.close()
 
 
@@ -184,7 +183,7 @@ def test_combine_three_models():
         assert all("dimensions_results.json" in w for w in warnings), warnings
         table = cm.summary_table(runs)
         assert len(table) == 6
-        assert table["TEP (2-stage vs 1-stage)"].notna().sum() == 3
+        assert not any("TEP" in c for c in table.columns)
         json_path, xlsx_path = cm.write_outputs(runs, warnings, Path(d) / "out", Path(d) / "none")
         assert set(json.loads(json_path.read_text(encoding="utf-8"))["models"]) == set(runs)
         wb = load_workbook(xlsx_path)
