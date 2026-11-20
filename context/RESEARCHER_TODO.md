@@ -113,7 +113,7 @@ lokal) — jalankan di Kaggle.
 ## 3. Keputusan yang perlu didiskusikan
 
 - [ ] **Baseline DAIL-SQL** (`IMPLEMENTATION_DECISIONS.md` poin 43, open item F). Kode sudah ada di branch `feat/dail-sql` (DAIL asli, hanya LLM diganti Qwen, evaluasi sama dengan `eval_pipeline`). Yang harus dilakukan peneliti:
-  - [ ] Preprocessing DAIL sekali (Java + CoreNLP + GloVe, environment terpisah): `python src/experiments/dail_preprocess.py --spider-dir <spider_data> --out-dir data/dail`, lalu upload `data/dail/` sebagai Kaggle Dataset.
+  - [x] ~~Preprocessing DAIL manual di environment terpisah~~ — sejak poin 44 jalan otomatis di `eval_dail.ipynb` (Internet = On, sekali per sesi, beberapa puluh menit). Opsional: simpan `data/dail/` hasil run sebagai Kaggle Dataset lalu arahkan `DAIL_DATA_DIR` ke situ supaya run berikutnya lebih cepat.
   - [ ] Jalankan `notebooks/eval_dail.ipynb` per model, dengan `MODEL` dan `SAMPLE_RATIO` yang sama dengan `eval_pipeline.ipynb` (uji dulu `SAMPLE_RATIO = 0.05`).
   - [ ] Putuskan (dengan pembimbing) pasangan TEP yang dilaporkan dan cara menggabungkan tiga kondisi di Excel/dimensi (pilihan A).
 

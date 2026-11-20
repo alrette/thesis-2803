@@ -14,7 +14,7 @@ DAIL-SQL **tidak memangkas schema**: seluruh schema DB selalu dikirim ke LLM. Ke
 
 ```
                  ┌──────────────── PREPROCESSING (sekali) ─────────────────┐
-dev.json ───────►│ Schema linking ala RAT-SQL (CoreNLP + GloVe 42B)        │
+dev.json ───────►│ Schema linking ala RAT-SQL (CoreNLP)                    │
 train_spider +   │  • sc_link: token pertanyaan yang cocok nama tabel/kolom │
 train_others ───►│  • cv_link: token yang cocok nilai sel / angka          │
                  └───────────────────────┬─────────────────────────────────┘
@@ -192,13 +192,13 @@ Pola yang sama dengan `external/spider_eval/` yang dibungkus `src/metrics/`.
 | `schema_context()` | Teks CREATE TABLE yang masuk prompt, untuk `schema_tokens` |
 | `finish_latency()` | Mengurangkan `build_ddl` dan `few_shot` dari `build_prompt` supaya `end_to_end` tidak menghitung dua kali |
 
-### 3.3 `src/experiments/dail_preprocess.py` — preprocessing sekali
+### 3.3 `src/experiments/dail_preprocess.py` — preprocessing (otomatis dari notebook)
 
 1. Gabungkan `train_spider.json` + `train_others.json` menjadi `data/dail/train_spider_and_others.json`.
-2. Panggil `schema_linking_producer()` DAIL asli, hasilnya `data/dail/enc/{test,train}_schema-linking.jsonl`.
+2. Jalankan isi `schema_linking_producer()` DAIL dengan kelas DAIL yang sama, hasilnya `data/dail/enc/{test,train}_schema-linking.jsonl`. Satu-satunya penggantian: objek `GloVe` diganti `CoreNLPTokenizer`, karena DAIL hanya memakai GloVe untuk tokenisasi + lemma CoreNLP (vektornya tidak dibaca). Hasilnya sama, tanpa `torchtext` dan unduhan 5 GB (`IMPLEMENTATION_DECISIONS.md` poin 44).
 3. Cek jumlah baris (1034 dev, 8659 train).
 
-Butuh Java, CoreNLP 2018-10-05, `torchtext` (GloVe 42B, ~5 GB), `bpemb`, jadi dijalankan di environment terpisah. Hasilnya di-upload sebagai Kaggle Dataset.
+Butuh Java (dipasang `apt-get` kalau belum ada), CoreNLP 2018-10-05 (diunduh otomatis ~400 MB), dan `stanford-corenlp`. `dail_steps.load_dail()` menjalankannya sendiri kalau `DAIL_DATA_DIR` masih kosong, jadi di Kaggle tidak perlu langkah manual.
 
 ```bash
 python src/experiments/dail_preprocess.py --spider-dir <folder spider_data> --out-dir data/dail
@@ -222,7 +222,7 @@ python src/experiments/dail_preprocess.py --spider-dir <folder spider_data> --ou
 | Bagian | Isi |
 |---|---|
 | Pembuka | Tabel "DAIL asli vs skripsi" dan "evaluasi sama dengan eval_pipeline" |
-| 0 | Cara preprocessing (opsional `RUN_PREPROCESS`) |
+| 0 | Preprocessing (otomatis di Bagian 6 kalau `DAIL_DATA_DIR` kosong) |
 | 1-3 | Setup, import, konfigurasi (`MODEL`, `SAMPLE_RATIO`, `DAIL_DATA_DIR`) |
 | 4-7 | Data, LLM, siapkan DAIL, evaluator |
 | 8 | Contoh satu pertanyaan |
@@ -254,7 +254,7 @@ Semua terpisah dari hasil 1-Stage/2-Stage, jadi tidak saling menimpa.
 | File | Perubahan |
 |---|---|
 | `src/core/config.py` | Tambah field `dail_*` (nilai DAIL asli + stop `;`). Nilai lama tidak berubah |
-| `.gitignore` | Abaikan cache GloVe (`data/dail_cache/`) dan CoreNLP (`external/dail_sql/third_party/`) |
+| `.gitignore` | Abaikan cache unduhan (`data/dail_cache/`, berisi CoreNLP sejak poin 44) dan `external/dail_sql/third_party/` |
 | `CLAUDE.md` | Struktur file, status baseline, TBD, perintah CLI |
 | `context/IMPLEMENTATION_DECISIONS.md` | Poin 43 dan status open item F |
 | `context/RESEARCHER_TODO.md` | Langkah yang harus dijalankan peneliti |
@@ -264,7 +264,7 @@ Semua terpisah dari hasil 1-Stage/2-Stage, jadi tidak saling menimpa.
 ## 4. Dependensi dan catatan teknis
 
 - **Saat run (Kaggle):** `sentence-transformers`, `transformers`, `bitsandbytes`, `nltk` (punkt, stopwords), `sqlparse`, dan **`sql_metadata<3`**. `sql_metadata` 3.x mengubah API token dan membuat `sql2skeleton()` DAIL crash (sudah diverifikasi), jadi dipin ke 2.x.
-- **Saat preprocessing (sekali):** Java + Stanford CoreNLP 2018-10-05, `stanford-corenlp`, `torchtext` (GloVe 42B), `bpemb`, `attrs`, `nltk`. `torchtext` sering bentrok dengan versi torch di Kaggle, jadi sebaiknya environment terpisah.
+- **Saat preprocessing (otomatis, sekali per sesi):** Java + Stanford CoreNLP 2018-10-05, `stanford-corenlp`, `attrs`, `nltk`. GloVe/`torchtext`/`bpemb` tidak dibutuhkan (poin 44).
 - **Status pengujian:** smoke test lokal memakai kode prompt/selector DAIL asli dan data Spider asli, tapi linking sintetis, encoder palsu, dan LLM palsu. Hasilnya: prompt 9 contoh yang diakhiri `SELECT `, skeleton, cleaner, token per pass, latensi tanpa hitung ganda, raw_logs, metrik, TEP, dan Excel berjalan benar. **Belum dijalankan:** preprocessing asli (CoreNLP), mpnet asli, dan Qwen di GPU.
 
 ## 5. Belum diputuskan
