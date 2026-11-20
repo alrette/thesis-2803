@@ -20,8 +20,8 @@ Langkah:
   2. Schema linking dev + train -> data/dail/enc/{test,train}_schema-linking.jsonl
   3. Cek jumlah baris linking = jumlah pertanyaan (DAIL mencocokkannya per posisi).
 
-Kebutuhan: Java (dipasang lewat apt-get kalau belum ada), Stanford CoreNLP 2018-10-05 (diunduh
-otomatis ~400 MB ke --cache-dir kalau CORENLP_HOME belum ada), paket pip `stanford-corenlp`.
+Kebutuhan: Java (dipasang lewat apt-get kalau belum ada), Stanford CoreNLP 3.9.2 = rilis 2018-10-05
+(jar diunduh otomatis dari Maven Central, ~370 MB, ke --cache-dir kalau CORENLP_HOME belum ada), paket pip `stanford-corenlp`.
 Di Kaggle cukup dipanggil dari notebooks/eval_dail.ipynb (otomatis kalau data/dail/ belum ada).
 
     python src/experiments/dail_preprocess.py --spider-dir data/spider_data --out-dir data/dail
@@ -44,14 +44,42 @@ import subprocess
 import sys
 import time
 import urllib.request
-import zipfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRAIN_SPLITS = ("train_spider.json", "train_others.json")
 TRAIN_FILE = "train_spider_and_others.json"
-CORENLP_NAME = "stanford-corenlp-full-2018-10-05"
-CORENLP_URL = f"https://nlp.stanford.edu/software/{CORENLP_NAME}.zip"
+# CoreNLP 3.9.2 = rilis stanford-corenlp-full-2018-10-05 yang diminta DAIL. Diambil dari Maven Central
+# (jar CoreNLP, model, dan dependensinya), karena nlp.stanford.edu tidak bisa dijangkau dari Kaggle
+# ("No route to host"). CoreNLPClient hanya butuh folder berisi jar-jar ini (java -cp "$CORENLP_HOME/*").
+CORENLP_NAME = "stanford-corenlp-3.9.2-maven"
+MAVEN_MIRRORS = ("https://repo1.maven.org/maven2", "https://repo.maven.apache.org/maven2")
+CORENLP_JARS = [  # (group, artifact, version, classifier); daftar dari `mvn dependency:list` CoreNLP 3.9.2
+    ("edu.stanford.nlp", "stanford-corenlp", "3.9.2", ""),
+    ("edu.stanford.nlp", "stanford-corenlp", "3.9.2", "models"),
+    ("com.apple", "AppleJavaExtensions", "1.4", ""),
+    ("de.jollyday", "jollyday", "0.4.9", ""),
+    ("org.apache.commons", "commons-lang3", "3.3.1", ""),
+    ("org.apache.lucene", "lucene-queryparser", "4.10.3", ""),
+    ("org.apache.lucene", "lucene-sandbox", "4.10.3", ""),
+    ("org.apache.lucene", "lucene-analyzers-common", "4.10.3", ""),
+    ("org.apache.lucene", "lucene-queries", "4.10.3", ""),
+    ("org.apache.lucene", "lucene-core", "4.10.3", ""),
+    ("javax.servlet", "javax.servlet-api", "3.0.1", ""),
+    ("com.io7m.xom", "xom", "1.2.10", ""),
+    ("xml-apis", "xml-apis", "1.3.03", ""),
+    ("xerces", "xercesImpl", "2.8.0", ""),
+    ("xalan", "xalan", "2.7.0", ""),
+    ("joda-time", "joda-time", "2.9.4", ""),
+    ("com.googlecode.efficient-java-matrix-library", "ejml", "0.23", ""),
+    ("org.glassfish", "javax.json", "1.0.4", ""),
+    ("org.slf4j", "slf4j-api", "1.7.12", ""),
+    ("com.google.protobuf", "protobuf-java", "3.2.0", ""),
+    ("javax.activation", "javax.activation-api", "1.2.0", ""),
+    ("javax.xml.bind", "jaxb-api", "2.4.0-b180830.0359", ""),
+    ("com.sun.xml.bind", "jaxb-core", "2.3.0.1", ""),
+    ("com.sun.xml.bind", "jaxb-impl", "2.4.0-b180830.0438", ""),
+]
 
 
 def merge_train(spider_dir: Path, out_dir: Path) -> Path:
@@ -81,22 +109,37 @@ def ensure_java() -> None:
         raise RuntimeError("Java tetap tidak ditemukan setelah apt-get. Pasang Java manual lalu ulangi.")
 
 
+def download(path: str, target: Path, attempts: int = 5) -> None:
+    """Unduh satu jar dari Maven Central; coba lagi dengan jeda (Maven kadang membalas 429) dan mirror kedua."""
+    partial = target.with_suffix(".part")
+    for attempt in range(attempts):
+        for mirror in MAVEN_MIRRORS:
+            try:
+                urllib.request.urlretrieve(f"{mirror}/{path}", partial)
+                partial.rename(target)
+                return
+            except OSError as e:  # URLError/HTTPError turunan OSError
+                error = e
+        time.sleep(10 * (attempt + 1))
+    raise RuntimeError(f"Gagal mengunduh {path}: {error}")
+
+
 def ensure_corenlp(cache_dir: Path) -> Path:
-    """Pakai CORENLP_HOME kalau sudah di-set; kalau belum, unduh CoreNLP 2018-10-05 ke cache_dir."""
+    """Pakai CORENLP_HOME kalau sudah di-set; kalau belum, unduh jar CoreNLP 3.9.2 (= 2018-10-05) ke cache_dir."""
     if os.environ.get("CORENLP_HOME"):
         home = Path(os.environ["CORENLP_HOME"])
         if not home.is_dir():
             raise FileNotFoundError(f"CORENLP_HOME={home} tidak ada")
         return home
     home = cache_dir / CORENLP_NAME
-    if not home.is_dir():
-        archive = cache_dir / f"{CORENLP_NAME}.zip"
-        if not archive.exists():
-            print(f"Mengunduh {CORENLP_URL} (~400 MB) ...")
-            urllib.request.urlretrieve(CORENLP_URL, archive)
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(cache_dir)
-        archive.unlink()
+    home.mkdir(parents=True, exist_ok=True)
+    print(f"Mengunduh CoreNLP 3.9.2 dari Maven Central (~370 MB) ke {home} ...")
+    for group, artifact, version, classifier in CORENLP_JARS:
+        name = f"{artifact}-{version}{'-' + classifier if classifier else ''}.jar"
+        target = home / name
+        if target.exists():
+            continue
+        download(f"{group.replace('.', '/')}/{artifact}/{version}/{name}", target)
     os.environ["CORENLP_HOME"] = str(home)
     return home
 
@@ -172,7 +215,7 @@ def main() -> int:
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "data" / "dail")
     ap.add_argument("--dail-dir", type=Path, default=REPO_ROOT / "external" / "dail_sql")
     ap.add_argument("--cache-dir", type=Path, default=REPO_ROOT / "data" / "dail_cache",
-                    help="Tempat unduhan CoreNLP (~400 MB zip, ~500 MB terekstrak); jangan di-commit")
+                    help="Tempat unduhan jar CoreNLP (~370 MB); jangan di-commit")
     args = ap.parse_args()
 
     spider_dir, out_dir = args.spider_dir.resolve(), args.out_dir.resolve()
