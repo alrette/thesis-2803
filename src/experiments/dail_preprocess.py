@@ -168,27 +168,85 @@ class CoreNLPTokenizer:
         return text, text_for_copying
 
 
+class CachedConnection:
+    """
+    Salinan DB di memori (seperti DAIL) yang mengingat hasil tiap query. compute_cell_value_linking()
+    DAIL menjalankan query LIKE (scan seluruh tabel) untuk setiap kata x setiap kolom, dan kata yang
+    sama berulang di banyak pertanyaan pada DB yang sama. DB tidak pernah berubah, jadi hasil query
+    yang sama selalu sama: cache tidak mengubah hasil, hanya menghindari scan ulang. Error query
+    (mis. nama kolom yang bentrok dengan keyword SQL) juga diingat dan dilempar ulang, sehingga
+    DAIL tetap menangkapnya seperti biasa.
+    """
+
+    def __init__(self, sqlite_path: Path):
+        with sqlite3.connect(str(sqlite_path)) as source:
+            self.conn = sqlite3.connect(":memory:")
+            self.conn.row_factory = sqlite3.Row
+            source.backup(self.conn)
+        self.cache = {}
+
+    def cursor(self):
+        return _CachedCursor(self)
+
+
+class _CachedCursor:
+    def __init__(self, owner: CachedConnection):
+        self.owner, self.rows = owner, None
+
+    def execute(self, sql):
+        cache = self.owner.cache
+        if sql not in cache:
+            try:
+                cache[sql] = (self.owner.conn.cursor().execute(sql).fetchall(), None)
+            except Exception as e:
+                cache[sql] = (None, e)
+        self.rows, error = cache[sql]
+        if error is not None:
+            raise error
+        return self
+
+    def fetchall(self):
+        return self.rows
+
+
+# Diisi sebelum proses worker dibuat (fork), dibaca di worker
+_CV = {"schemas": None, "db_dir": None, "fn": None, "conns": {}}
+
+
+def _cell_value_link(task):
+    """Worker: compute_cell_value_linking() DAIL untuk satu pertanyaan, dengan koneksi ber-cache per DB."""
+    pos, db_id, tokens = task
+    schema = _CV["schemas"][db_id]
+    if db_id not in _CV["conns"]:
+        _CV["conns"][db_id] = CachedConnection(_CV["db_dir"] / db_id / f"{db_id}.sqlite")
+    schema.connection = _CV["conns"][db_id]
+    return pos, _CV["fn"](tokens, schema)
+
+
 def schema_linking(dev_path: Path, train_path: Path, tables_path: Path, db_dir: Path, out_dir: Path,
-                   dail_dir: Path) -> None:
-    """Langkah 2: isi schema_linking_producer() DAIL (compute_cv_link=True), word_emb = CoreNLPTokenizer."""
+                   dail_dir: Path, workers: int) -> None:
+    """
+    Langkah 2: isi schema_linking_producer() DAIL (compute_cv_link=True), word_emb = CoreNLPTokenizer.
+
+    preprocess_item() DAIL dijalankan dua tahap supaya bagian yang lambat bisa paralel:
+      a. tokenisasi CoreNLP + sc_link + info schema: preprocess_item() dengan compute_cv_link=False
+         (proses utama, satu server CoreNLP);
+      b. cv_link: compute_cell_value_linking(question, schema), persis argumen yang dipakai
+         preprocess_item() DAIL, di `workers` proses dengan koneksi ber-cache (CachedConnection).
+    Hasil (b) dimasukkan ke field 'cv_link' tiap item, lalu item disimpan berurutan seperti
+    add_item() + save() DAIL. Isi file keluaran sama dengan menjalankan schema_linking_producer().
+    """
+    import multiprocessing
     from tqdm import tqdm
     sys.path.insert(0, str(dail_dir.resolve()))
     from utils.datasets.spider import load_tables
     from utils.linking_process import SpiderEncoderV2Preproc
     from utils.linking_utils import corenlp
+    from utils.linking_utils.spider_match_utils import compute_cell_value_linking
 
     test_data = json.loads(dev_path.read_text(encoding="utf-8"))
     train_data = json.loads(train_path.read_text(encoding="utf-8"))
     schemas, _ = load_tables([str(tables_path)])
-
-    # Salinan DB di memori dan koneksinya, sama dengan DAIL
-    for db_id, schema in tqdm(schemas.items(), desc="DB connections"):
-        sqlite_path = db_dir / db_id / f"{db_id}.sqlite"
-        with sqlite3.connect(str(sqlite_path)) as source:
-            dest = sqlite3.connect(":memory:")
-            dest.row_factory = sqlite3.Row
-            source.backup(dest)
-        schema.connection = dest
 
     linking_processor = SpiderEncoderV2Preproc(str(out_dir),
                                                min_freq=4,
@@ -197,15 +255,29 @@ def schema_linking(dev_path: Path, train_path: Path, tables_path: Path, db_dir: 
                                                word_emb=CoreNLPTokenizer(corenlp.annotate),
                                                fix_issue_16_primary_keys=True,
                                                compute_sc_link=True,
-                                               compute_cv_link=True)
+                                               compute_cv_link=False)  # cv_link di tahap (b)
 
+    # (a) tokenisasi + sc_link, berurutan
+    entries = []  # (section, preprocessed item)
     for data, section in zip([test_data, train_data], ["test", "train"]):
-        for item in tqdm(data, desc=f"{section} section linking", mininterval=30):
+        for item in tqdm(data, desc=f"{section} tokenize + schema linking", mininterval=30):
             schema = schemas[item["db_id"]]
             to_add, validation_info = linking_processor.validate_item(item, schema, section)
             if to_add:
-                linking_processor.add_item(item, schema, section, validation_info)
+                entries.append((section, linking_processor.preprocess_item(item, schema, validation_info)))
 
+    # (b) cv_link paralel. Tugas diurutkan per DB supaya tiap worker banyak memakai ulang cache-nya.
+    _CV.update(schemas=schemas, db_dir=db_dir, fn=compute_cell_value_linking, conns={})
+    tasks = sorted(((pos, entry["db_id"], entry["question"]) for pos, (_, entry) in enumerate(entries)),
+                   key=lambda t: (t[1], t[0]))
+    print(f"Cell-value linking: {len(tasks)} pertanyaan, {workers} proses")
+    with multiprocessing.get_context("fork").Pool(workers) as pool:
+        for pos, cv_link in tqdm(pool.imap_unordered(_cell_value_link, tasks, chunksize=4),
+                                 total=len(tasks), desc="cell-value linking", mininterval=30):
+            entries[pos][1]["cv_link"] = cv_link
+
+    for section, entry in entries:
+        linking_processor.texts[section].append(entry)
     linking_processor.save()
 
 
@@ -214,6 +286,8 @@ def main() -> int:
     ap.add_argument("--spider-dir", type=Path, required=True, help="Folder Spider: dev.json, tables.json, database/, train_*.json")
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "data" / "dail")
     ap.add_argument("--dail-dir", type=Path, default=REPO_ROOT / "external" / "dail_sql")
+    ap.add_argument("--workers", type=int, default=os.cpu_count() or 1,
+                    help="Jumlah proses untuk cell-value linking (default: semua CPU)")
     ap.add_argument("--cache-dir", type=Path, default=REPO_ROOT / "data" / "dail_cache",
                     help="Tempat unduhan jar CoreNLP (~370 MB); jangan di-commit")
     args = ap.parse_args()
@@ -238,7 +312,7 @@ def main() -> int:
     start = time.perf_counter()
     train_path = merge_train(spider_dir, out_dir)
     schema_linking(spider_dir / "dev.json", train_path, spider_dir / "tables.json", spider_dir / "database",
-                   out_dir, args.dail_dir)
+                   out_dir, args.dail_dir, max(1, args.workers))
 
     # Langkah 3: data_builder.py DAIL memasangkan baris linking ke pertanyaan per posisi
     n_dev = len(json.loads((spider_dir / "dev.json").read_text(encoding="utf-8")))
