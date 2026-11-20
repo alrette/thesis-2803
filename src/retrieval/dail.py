@@ -88,7 +88,7 @@ def check_preprocessed(cfg, n_dev: int | None = None) -> dict:
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
         raise FileNotFoundError("Hasil preprocessing DAIL belum ada: " + ", ".join(missing)
-                                + ". Jalankan src/experiments/dail_preprocess.py (lihat notebooks/eval_dail.ipynb bagian 0).")
+                                + ". Jalankan src/experiments/dail_preprocess.py, atau dail_steps.load_dail(cfg) yang menjalankannya otomatis.")
     counts = {
         "dev": n_dev if n_dev is not None else len(json.loads(Path(cfg.dev_json).read_text(encoding="utf-8"))),
         "train": len(json.loads(paths["train"].read_text(encoding="utf-8"))),

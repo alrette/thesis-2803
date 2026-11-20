@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 import json
 # shutil untuk menyalin file dan membuat zip
 import shutil
+# subprocess dan sys untuk menjalankan preprocessing DAIL sebagai proses terpisah
+import subprocess
+import sys
 # time untuk mengukur waktu menulis Excel dan zip
 import time
 # Counter untuk menghitung kolom per tabel
@@ -155,8 +158,31 @@ def load_llm(cfg) -> tuple:
     return llm, tokenizer
 
 
-# Menyiapkan DAIL: cek hasil preprocessing, baca linking, buat index contoh kedua pass
-def load_dail(cfg):
+# Menjalankan dail_preprocess.py sebagai proses terpisah dan menampilkan log-nya di notebook
+def run_preprocess(cfg) -> None:
+    # Folder tujuan (harus bisa ditulis, jadi bukan /kaggle/input)
+    out_dir = dail_mod.dail_data_path(cfg)
+    print(f"Hasil preprocessing DAIL belum ada di {out_dir}; menjalankan dail_preprocess.py "
+          "(Java + CoreNLP diunduh otomatis kalau belum ada, butuh internet; beberapa puluh menit) ...")
+    # Proses terpisah: CoreNLP butuh setelan protobuf khusus yang tidak boleh memengaruhi kernel ini
+    cmd = [sys.executable, str(dail_mod.REPO_ROOT / "src" / "experiments" / "dail_preprocess.py"),
+           "--spider-dir", str(cfg.data_path), "--out-dir", str(out_dir)]
+    # stderr digabung ke stdout; text=True mengubah \r dari progress bar jadi baris baru
+    proc = subprocess.Popen(cmd, cwd=dail_mod.REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Tampilkan log baris per baris selama proses berjalan
+    for line in proc.stdout:
+        if line.strip():
+            print(line.rstrip(), flush=True)
+    # Hentikan notebook kalau preprocessing gagal
+    if proc.wait() != 0:
+        raise RuntimeError(f"dail_preprocess.py gagal (exit code {proc.returncode}); lihat log di atas.")
+
+
+# Menyiapkan DAIL: cek hasil preprocessing (buat dulu kalau belum ada), baca linking, buat index contoh kedua pass
+def load_dail(cfg, auto_preprocess: bool = True):
+    # Hasil preprocessing belum ada: buat sekarang (sekali per sesi Kaggle, ke cfg.dail_data_dir)
+    if auto_preprocess and not (dail_mod.dail_data_path(cfg) / dail_mod.TEST_LINKING).exists():
+        run_preprocess(cfg)
     # Cek jumlah baris linking dulu supaya kesalahan terlihat sebelum langkah yang lama
     counts = dail_mod.check_preprocessed(cfg)
     # Tampilkan jumlahnya

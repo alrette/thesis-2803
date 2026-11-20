@@ -51,7 +51,7 @@ thesis-2803/
 │   │   ├── metrics_summary.py — rangkum 6 metrik satu model dari raw_logs jadi `metrics_results.json` (poin 36)
 │   │   ├── notebook_steps.py — langkah-langkah `eval_pipeline.ipynb` (persiapan, contoh satu pertanyaan, loop utama, evaluator resmi, simpan), diberi komentar per baris supaya sel notebook cukup satu atau dua baris (poin 36)
 │   │   ├── dail_steps.py   — langkah-langkah `eval_dail.ipynb` (baseline DAIL-SQL): memakai ulang notebook_steps.py, metrics_summary.py, result_tables.py, timing.py; hasil ke file `dail_*` terpisah, TEP dengan DAIL sebagai B kalau raw_logs 1-Stage/2-Stage sebanding (poin 43)
-│   │   ├── dail_preprocess.py — preprocessing DAIL sekali (schema linking CoreNLP + GloVe, fungsi DAIL asli) → data/dail/ (poin 43)
+│   │   ├── dail_preprocess.py — preprocessing DAIL (schema linking CoreNLP, kelas DAIL asli; GloVe tidak dipakai) → data/dail/, dijalankan otomatis oleh `dail_steps.load_dail()` kalau belum ada (poin 43, 44)
 │   │   ├── combine_models.py — gabungkan hasil beberapa model jadi `outputs/tables/hasil_gabungan.{json,xlsx}`, dengan peringatan kalau hasil tidak sebanding (poin 36)
 │   │   ├── build_qvt_variations.py — bangun data/qvt_variations/*.json dari paraphrase alami dev.json + raw_logs (lihat IMPLEMENTATION_DECISIONS.md poin 21)
 │   │   └── run_all_dimensions.py — entry point evaluasi: baca raw_logs, jalankan 6 dimensi analisis
@@ -65,7 +65,7 @@ thesis-2803/
 │   ├── raw_logs/            — INPUT dimensi analisis: baseline_log.json, graphrag_log.json (skema di context/EVALUATION_ANALYSIS_GUIDE.md Bagian 2) — diproduksi oleh `pipeline.py`'s `run_comparison()` (via `--baseline`), BELUM oleh `ablation.py`, lihat TBD di bawah
 │   ├── db_schema/           — schema per db_id untuk validasi SLA
 │   ├── skeletons/           — train.json, dev.json: {db_id, question, skeleton, query}, output `src/skeleton/masking.py`
-│   ├── dail/                — hasil preprocessing DAIL (`dail_preprocess.py`): train_spider_and_others.json + enc/{test,train}_schema-linking.jsonl; di Kaggle = Kaggle Dataset (`DAIL_DATA_DIR`)
+│   ├── dail/                — hasil preprocessing DAIL (`dail_preprocess.py`): train_spider_and_others.json + enc/{test,train}_schema-linking.jsonl; di Kaggle dibuat otomatis per sesi, atau Kaggle Dataset (`DAIL_DATA_DIR`)
 │   └── qvt_variations/      — dataset paraphrase NL question untuk metrik QVT (Dimensi 4), dibangun otomatis oleh `build_qvt_variations.py` dari paraphrase alami di `data/spider_data/dev.json` (bukan digenerate manual — lihat IMPLEMENTATION_DECISIONS.md poin 21)
 ├── context/
 │   ├── EVALUATION_ANALYSIS_GUIDE.md — source of truth formula & alur berpikir untuk src/metrics/ dan src/dimensions/ (JANGAN ubah formula/threshold di situ tanpa konfirmasi peneliti)
@@ -369,7 +369,7 @@ data_path = Path("/kaggle/input/datasets/alrette/spiderdataset/spider_data")
 
 ## Hal yang Masih TBD (update setelah eksperimen)
 
-- Baseline DAIL-SQL: kode ada (branch `feat/dail-sql`, poin 43) tapi belum dijalankan dengan preprocessing asli, mpnet asli, maupun Qwen di GPU. Penggabungan tiga kondisi (satu Excel, Dimensi 1-6, `combine_models.py`) dan pasangan TEP yang dilaporkan belum diputuskan (`IMPLEMENTATION_DECISIONS.md` open item F)
+- Baseline DAIL-SQL: kode ada (branch `feat/dail-sql`, poin 43; preprocessing otomatis poin 44) tapi belum dijalankan dengan preprocessing di Spider asli, mpnet asli, maupun Qwen di GPU. Penggabungan tiga kondisi (satu Excel, Dimensi 1-6, `combine_models.py`) dan pasangan TEP yang dilaporkan belum diputuskan (`IMPLEMENTATION_DECISIONS.md` open item F)
 - Nilai final `top_k_tables_pct`, `top_k_columns_pct`, `baseline_top_k_tables_pct` → tunggu ablation tahap 1 (`sweep.py`, SLA); `semantic_similarity_threshold` → `sweep.py --thresholds`
 - Nilai final `few_shot_k` (sama untuk Baseline & GraphRAG) → tunggu ablation tahap 2 (`ablation.py`, EX)
 - Nilai final `llm_model` → tunggu ablation tahap 3 (`pipeline.py --baseline --models all`)
@@ -429,8 +429,8 @@ python src/experiments/run_all_dimensions.py
 # Rangkum semua hasil jadi satu file Excel (outputs/tables/hasil_skripsi.xlsx)
 python src/experiments/export_excel.py
 
-# Baseline DAIL-SQL (poin 43): preprocessing sekali (Java + CoreNLP + GloVe, environment terpisah),
-# lalu jalankan notebooks/eval_dail.ipynb di Kaggle
+# Baseline DAIL-SQL (poin 43, 44): jalankan notebooks/eval_dail.ipynb di Kaggle; preprocessing (Java + CoreNLP)
+# otomatis kalau data/dail/ belum ada. Manual:
 python src/experiments/dail_preprocess.py --spider-dir data/spider_data --out-dir data/dail
 
 # Idem, subset dimensi + data ablation untuk Dimensi 6
