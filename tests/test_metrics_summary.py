@@ -216,6 +216,26 @@ def test_combine_flags_incomparable_and_duplicate_runs():
             raise AssertionError("model duplikat harus ditolak")
 
 
+def test_metadata_records_1stage_table_threshold():
+    from types import SimpleNamespace
+    from src.experiments.metrics_summary import run_metadata
+    cfg = SimpleNamespace(llm_model="Qwen/Qwen2.5-Coder-7B-Instruct", seed=42, few_shot_k=0, few_shot_selection="skeleton",
+                          table_similarity_threshold=0.6, semantic_similarity_threshold=0.7)
+    # Tanpa BASELINE_TABLE_THRESHOLD: 1-Stage memakai threshold tabel yang sama dengan 2-Stage
+    assert run_metadata(cfg, 1.0)["baseline_table_threshold"] == 0.6
+    # eval_pipeline.ipynb mengisi cfg.baseline_table_threshold
+    cfg.baseline_table_threshold = 0.65
+    meta = run_metadata(cfg, 1.0)
+    assert meta["table_threshold"] == 0.6 and meta["baseline_table_threshold"] == 0.65
+
+    # Threshold 1-Stage yang berbeda antar model harus diperingatkan
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _write_run(root, "Qwen/Qwen2.5-Coder-3B-Instruct", variants={"baseline_table_threshold": 0.65})
+        _write_run(root, "Qwen/Qwen2.5-Coder-7B-Instruct", variants={"baseline_table_threshold": 0.60})
+        assert any("baseline_table_threshold" in w for w in cm.find_warnings(cm.load_runs(root)))
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

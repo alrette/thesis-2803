@@ -33,7 +33,8 @@ from src.utils.timing import RUN_FILENAME  # noqa: E402
 
 # Harus sama di semua model supaya perbandingannya adil.
 COMPARABLE_KEYS = ("commit", "sample_ratio", "seed", "few_shot_k", "few_shot_selection",
-                   "table_threshold", "column_threshold", "alpha", "queries", "gpu", *VARIANT_KEYS)
+                   "table_threshold", "baseline_table_threshold", "column_threshold", "alpha", "queries", "gpu",
+                   *VARIANT_KEYS)
 
 
 def _slug(model: str) -> str:

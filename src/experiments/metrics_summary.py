@@ -157,6 +157,12 @@ def _git_commit() -> Optional[str]:
         return None
 
 
+def baseline_table_threshold(cfg) -> float:
+    """Threshold tabel GraphRAG 1-Stage. eval_pipeline.ipynb boleh memberi nilai sendiri lewat atribut
+    cfg.baseline_table_threshold (BASELINE_TABLE_THRESHOLD); tanpa itu sama dengan threshold tabel 2-Stage."""
+    return getattr(cfg, "baseline_table_threshold", cfg.table_similarity_threshold)
+
+
 def run_metadata(cfg, sample_ratio: float) -> dict:
     """Identitas run. combine_models.py memakainya untuk memastikan ketiga model sebanding."""
     return {
@@ -168,6 +174,8 @@ def run_metadata(cfg, sample_ratio: float) -> dict:
         "few_shot_k": cfg.few_shot_k,
         "few_shot_selection": cfg.few_shot_selection,
         "table_threshold": cfg.table_similarity_threshold,
+        # Threshold tabel 1-Stage; sama dengan table_threshold kalau tidak dibedakan
+        "baseline_table_threshold": baseline_table_threshold(cfg),
         "column_threshold": cfg.semantic_similarity_threshold,
         # Saklar varian dan preprocessing (poin 30, 39): beda nilai = hasil antar model tidak sebanding
         **{key: getattr(cfg, key, None) for key in VARIANT_KEYS},

@@ -40,7 +40,7 @@ from src.core.schema import build_schema_graph, load_spider_schema
 # Fungsi membuat file Excel
 from src.experiments.export_excel import build_workbook
 # Fungsi menyimpan hasil metrik
-from src.experiments.metrics_summary import save_metrics_results
+from src.experiments.metrics_summary import baseline_table_threshold, save_metrics_results
 # Fungsi evaluasi dan pipeline yang dipakai bersama pipeline.py
 from src.experiments.pipeline import (
     # Wadah hasil 2-Stage
@@ -241,8 +241,10 @@ def show_run_config(cfg, sample_ratio: float, artifact_dir: Path, raw_logs_dir: 
         ("Embedding model", cfg.embedding_model),
         # Model LLM yang dipilih
         ("LLM model", cfg.llm_model),
-        # Threshold tabel
-        ("Table threshold (Stage 1, both pipelines)", cfg.table_similarity_threshold),
+        # Threshold tabel 2-Stage
+        ("Table threshold (Stage 1, GraphRAG 2-Stage)", cfg.table_similarity_threshold),
+        # Threshold tabel 1-Stage (BASELINE_TABLE_THRESHOLD di notebook)
+        ("Table threshold (GraphRAG 1-Stage)", baseline_table_threshold(cfg)),
         # Threshold kolom
         ("Column threshold (Stage 2, GraphRAG 2-Stage)", cfg.semantic_similarity_threshold),
         # Apakah embedding memakai nama natural Spider
@@ -495,7 +497,7 @@ def walk_through_1stage(tools: Tools, item: dict, two_stage: dict) -> None:
     # Pilih tabel yang relevan dengan pertanyaan
     detected = semantic_linking_table_level(tools.tbl_cache[db], q, tools.embed_model, cfg)
     # Tampilkan tabel yang terpilih
-    print(f"[Pilih tabel] threshold {cfg.table_similarity_threshold} -> {len(detected)} tabel: {detected}")
+    print(f"[Pilih tabel] threshold {baseline_table_threshold(cfg)} -> {len(detected)} tabel: {detected}")
     # Tambahkan tabel penghubung yang dibutuhkan untuk JOIN
     table_nodes = trace_table_paths(tools.tbl_graph, detected)
     # Tampilkan daftar tabel akhir
