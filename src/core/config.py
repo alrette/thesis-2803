@@ -189,8 +189,12 @@ class PipelineConfig:
     dail_scope_factor: int = 100     # candidate pool = k_shot x scope_factor
     # Stop sequences of DAIL's completion mode (llm/chatgpt.py ask_completion: stop=[";"]).
     # The prompt ends with "SELECT ", so Qwen is used in completion mode like text-davinci.
-    # Empty list = stop only at EOS / max_new_tokens.
-    dail_stop_strings: list[str] = field(default_factory=lambda: [";"])
+    # "/*": DAIL's QA examples are "/* Answer the following: ... */\nSQL" without ";", so Qwen
+    # writes its SQL and then starts the next "/* Answer ..." block until max_new_tokens (~70 s per
+    # question on Kaggle T4). DAIL's own cleaner (process_duplication) drops everything after the
+    # first "/*", so stopping there gives the same SQL, only without the wasted tokens
+    # (IMPLEMENTATION_DECISIONS.md point 46). Empty list = stop only at EOS / max_new_tokens.
+    dail_stop_strings: list[str] = field(default_factory=lambda: [";", "/*"])
 
     # --- Mode ---
     use_full_schema_bypass: bool = False
