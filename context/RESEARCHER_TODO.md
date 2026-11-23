@@ -112,7 +112,18 @@ lokal) — jalankan di Kaggle.
 
 ## 3. Keputusan yang perlu didiskusikan
 
-- [ ] **Baseline DAIL-SQL** (dikerjakan nanti, `IMPLEMENTATION_DECISIONS.md` poin 37 dan open item F). GraphRAG 1-Stage dan 2-Stage adalah metode peneliti; baseline skripsi adalah DAIL-SQL. Perlu diputuskan cara menjalankannya, syarat kesebandingan, metrik yang dibandingkan, dan pembanding TEP.
+- [ ] **Baseline DAIL-SQL** (`IMPLEMENTATION_DECISIONS.md` poin 43, open item F). Kode sudah ada di branch `feat/dail-sql` (DAIL asli, hanya LLM diganti Qwen, evaluasi sama dengan `eval_pipeline`). Yang harus dilakukan peneliti:
+  - [x] ~~Preprocessing DAIL manual di environment terpisah~~ — sejak poin 44 jalan otomatis di `eval_dail.ipynb` (Internet = On, sekali per sesi, beberapa puluh menit). Opsional: simpan `data/dail/` hasil run sebagai Kaggle Dataset lalu arahkan `DAIL_DATA_DIR` ke situ supaya run berikutnya lebih cepat.
+  - [ ] Jalankan `notebooks/eval_dail.ipynb` per model, dengan `MODEL` dan `SAMPLE_RATIO` yang sama dengan `eval_pipeline.ipynb` (uji dulu `SAMPLE_RATIO = 0.05`).
+  - [x] ~~Putuskan pasangan TEP~~ — DIPUTUSKAN 2026-11-20 (poin 45): B = DAIL-SQL, untuk 1-Stage dan 2-Stage, per model.
+  - [ ] **TEP vs DAIL-SQL** (`notebooks/eval_tep.ipynb`, tanpa GPU) setelah ketiga model punya hasil 1-Stage/2-Stage dan DAIL-SQL:
+    ekstrak `hasil_<MODEL>.zip` ke `outputs/models/` dan `hasil_dail_<MODEL>.zip` ke `outputs/models/Qwen2.5-Coder-<MODEL>-Instruct/`
+    (atau taruh `hasil_skripsi_<MODEL>.xlsx` dan `hasil_dail_<MODEL>.xlsx` di `outputs/tables/`), lalu jalankan notebook-nya.
+    Syarat: `eval_dail` dijalankan dengan `MODEL`, `SAMPLE_RATIO`, dan seed yang sama dengan `eval_pipeline`, dan `DAIL_K_SHOT = 9`.
+    Run 7B (1-Stage/2-Stage) sudah ada di `outputs/tables/hasil_skripsi_7B.xlsx`; yang kurang DAIL-SQL 7B, lalu 3B dan 14B.
+  - [ ] Tulis di metodologi: k few-shot DAIL (9) berbeda dengan 1-Stage/2-Stage (run 7B: k = 0), jadi ΔT terhadap DAIL juga memuat
+    token contoh few-shot dan schema penuh DAIL, bukan hanya selisih retrieval. Tabel interpretasi TEP di guide mengasumsikan ΔT < 0.
+  - [ ] Putuskan (dengan pembimbing) cara menggabungkan tiga kondisi untuk Dimensi 2-6 dan satu Excel (pilihan A, open item F).
 
 - [x] **Definisi final Baseline** — DIPUTUSKAN 2026-09-06: **table-level
   retrieval** (`src/retrieval/baseline.py`) adalah baseline skripsi, FINAL.

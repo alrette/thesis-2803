@@ -2,7 +2,12 @@
 metrics_summary.py — rangkum 6 metrik satu model jadi metrics_results.json.
 
 Enam metrik mengikuti context/EVALUATION_ANALYSIS_GUIDE.md Bagian 1:
-    SLA, ESM, EX, CM, Token Consumption + TEP, QVT.
+    SLA, ESM, EX, CM, Token Consumption, QVT.
+
+TEP (bagian kedua metrik 1.5) TIDAK dihitung di sini: B di rumus TEP = DAIL-SQL (baseline skripsi), dan
+TEP dihitung di notebooks/eval_tep.ipynb (src/experiments/tep_steps.py) dari hasil yang tersimpan (poin 45).
+Kunci JSON "token_tep" sengaja tetap supaya metrics_results.json lama (yang masih berisi "tep" 2-Stage vs
+1-Stage) tetap terbaca; isi "tep" lama itu diabaikan semua pembaca.
 
 Dua kondisi yang dibandingkan:
     "baseline" = GraphRAG 1-Stage (nama kode lama, retrieval level tabel)
@@ -10,7 +15,7 @@ Dua kondisi yang dibandingkan:
 
 Tidak ada formula baru. Modul ini hanya merangkum raw_logs dengan fungsi yang sudah
 ada di src/metrics/ (kode custom skripsi). Nilai ESM/EX/CM per query di raw_logs berasal
-dari esm_ex_cm.py, yang membungkus evaluator resmi Spider. TEP sama dengan Dimensi 1.
+dari esm_ex_cm.py, yang membungkus evaluator resmi Spider.
 
 Semua persentase disimpan sebagai pecahan 0-1. Hanya angka: teks interpretasi tidak
 ditulis di sini (sama dengan result_tables.py).
@@ -84,16 +89,18 @@ def _token(logs: list, alpha: float) -> dict:
     }
 
 
-def _tep(baseline_logs: list, graphrag_logs: list, alpha: float) -> dict:
-    """TEP tidak terdefinisi kalau EX 1-Stage = 0 atau T kedua kondisi sama: dilaporkan, bukan crash."""
-    if not baseline_logs or not graphrag_logs:
+def _tep(b_logs: list, c_logs: list, alpha: float) -> dict:
+    """TEP kondisi c terhadap pembanding B (DAIL-SQL, poin 45). Dipakai eval_dail.ipynb dan eval_tep.ipynb.
+
+    TEP tidak terdefinisi kalau EX_B = 0 atau T kedua kondisi sama: dilaporkan, bukan crash."""
+    if not b_logs or not c_logs:
         return {"status": "not_available", "reason": "raw_logs kosong"}
     try:
         result = compute_tep(
-            ex_baseline=_mean([e["ex_result"] for e in baseline_logs]),
-            ex_graphrag=_mean([e["ex_result"] for e in graphrag_logs]),
-            t_baseline=_mean([_t(e, alpha) for e in baseline_logs]),
-            t_graphrag=_mean([_t(e, alpha) for e in graphrag_logs]),
+            ex_baseline=_mean([e["ex_result"] for e in b_logs]),
+            ex_graphrag=_mean([e["ex_result"] for e in c_logs]),
+            t_baseline=_mean([_t(e, alpha) for e in b_logs]),
+            t_graphrag=_mean([_t(e, alpha) for e in c_logs]),
         )
     except ValueError as exc:
         return {"status": "not_available", "reason": str(exc)}
@@ -135,10 +142,8 @@ def build_metrics_results(
             "esm": {c: _accuracy(logs[c], "esm_result") for c in CONDITIONS},
             "ex": {c: _accuracy(logs[c], "ex_result") for c in CONDITIONS},
             "cm": {c: _cm(logs[c]) for c in CONDITIONS},
-            "token_tep": {
-                "token": {c: _token(logs[c], alpha) for c in CONDITIONS},
-                "tep": _tep(baseline_logs, graphrag_logs, alpha),
-            },
+            # Nama kunci lama dipertahankan; TEP (B = DAIL-SQL) ada di eval_tep.ipynb (poin 45)
+            "token_tep": {"token": {c: _token(logs[c], alpha) for c in CONDITIONS}},
             "qvt": {c: _qvt(c, qvt_dir, qvt_conditions) for c in CONDITIONS},
         },
     }
@@ -152,6 +157,16 @@ def _git_commit() -> Optional[str]:
         return None
 
 
+def baseline_table_threshold(cfg) -> float:
+    """Threshold tabel GraphRAG 1-Stage yang benar-benar dipakai baseline.py: cfg.baseline_table_similarity_threshold
+    (BASELINE_TABLE_THRESHOLD di eval_pipeline.ipynb), atau threshold tabel 2-Stage kalau None."""
+    method = getattr(cfg, "baseline_table_threshold", None)
+    if callable(method):
+        return method()
+    value = getattr(cfg, "baseline_table_similarity_threshold", None)
+    return cfg.table_similarity_threshold if value is None else value
+
+
 def run_metadata(cfg, sample_ratio: float) -> dict:
     """Identitas run. combine_models.py memakainya untuk memastikan ketiga model sebanding."""
     return {
@@ -163,6 +178,8 @@ def run_metadata(cfg, sample_ratio: float) -> dict:
         "few_shot_k": cfg.few_shot_k,
         "few_shot_selection": cfg.few_shot_selection,
         "table_threshold": cfg.table_similarity_threshold,
+        # Threshold tabel 1-Stage; sama dengan table_threshold kalau tidak dibedakan
+        "baseline_table_threshold": baseline_table_threshold(cfg),
         "column_threshold": cfg.semantic_similarity_threshold,
         # Saklar varian dan preprocessing (poin 30, 39): beda nilai = hasil antar model tidak sebanding
         **{key: getattr(cfg, key, None) for key in VARIANT_KEYS},

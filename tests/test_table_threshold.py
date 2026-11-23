@@ -1,5 +1,5 @@
 """
-Tes lokal threshold tabel per pipeline (IMPLEMENTATION_DECISIONS.md poin 43), tanpa Spider dan tanpa model:
+Tes lokal threshold tabel per pipeline (IMPLEMENTATION_DECISIONS.md poin 46), tanpa Spider dan tanpa model:
 embedder palsu memberi skor tabel tetap 1.00 / 0.62 / 0.30.
 
     python tests/test_table_threshold.py
@@ -45,7 +45,7 @@ def two_stage(cfg) -> list:
 
 def main():
     cfg = PipelineConfig()
-    assert (cfg.table_similarity_threshold, cfg.baseline_table_threshold(), cfg.value_link_numbers) == (0.60, 0.65, True)
+    assert (cfg.table_similarity_threshold, cfg.baseline_table_threshold(), cfg.value_link_numbers) == (0.60, 0.65, False)
     assert two_stage(cfg) == ["a", "b"]            # 0.62 >= 0.60
     assert one_stage(cfg) == ["a"]                 # 0.62 <  0.65
 
@@ -55,8 +55,8 @@ def main():
     p = argparse.ArgumentParser()
     add_config_override_args(p)
     c = apply_config_overrides(PipelineConfig(), p.parse_args(["--baseline-table-threshold", "0.7",
-                                                               "--value-link-numbers", "false"]))
-    assert c.baseline_table_threshold() == 0.7 and c.value_link_numbers is False
+                                                               "--value-link-numbers", "true"]))
+    assert c.baseline_table_threshold() == 0.7 and c.value_link_numbers is True
     print("OK: table threshold tests passed")
 
 

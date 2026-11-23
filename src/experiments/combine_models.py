@@ -33,7 +33,8 @@ from src.utils.timing import RUN_FILENAME  # noqa: E402
 
 # Harus sama di semua model supaya perbandingannya adil.
 COMPARABLE_KEYS = ("commit", "sample_ratio", "seed", "few_shot_k", "few_shot_selection",
-                   "table_threshold", "column_threshold", "alpha", "queries", "gpu", *VARIANT_KEYS)
+                   "table_threshold", "baseline_table_threshold", "column_threshold", "alpha", "queries", "gpu",
+                   *VARIANT_KEYS)
 
 
 def _slug(model: str) -> str:
@@ -99,18 +100,16 @@ def summary_table(runs: dict) -> pd.DataFrame:
     rows = []
     for slug, run in runs.items():
         m, q = run["metrics"]["metrics"], run["metrics"]["meta"]["queries"]
-        tep = m["token_tep"]["tep"]
         for c in CONDITIONS:
             sla, qvt = m["sla"][c]["column"] or {}, m["qvt"][c]
             rows.append({
                 "Model": slug, "Variant": CONDITION_LABELS[c], "Queries": q[c],
                 "SLA column F1": sla.get("f1"), "ESM": m["esm"][c]["overall"], "EX": m["ex"][c]["overall"],
                 "T mean": m["token_tep"]["token"][c]["t_mean"],
-                "TEP (2-stage vs 1-stage)": tep.get("tep") if c == "graphrag" else None,
                 "QVT": qvt.get("qvt"),
             })
     return rt.with_formats(pd.DataFrame(rows), {"Queries": "int", "SLA column F1": "pct", "ESM": "pct", "EX": "pct",
-                                                "T mean": "num1", "TEP (2-stage vs 1-stage)": "num4", "QVT": "pct"},
+                                                "T mean": "num1", "QVT": "pct"},
                            title="All models: six metrics")
 
 

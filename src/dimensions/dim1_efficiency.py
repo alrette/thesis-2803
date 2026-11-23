@@ -11,7 +11,10 @@ dan src.metrics.esm_ex_cm).
 Urutan output WAJIB sesuai guide (jangan diacak):
 1. Tabel Token Consumption (mean, median, per difficulty) — baseline vs graphrag
 2. Tabel EX (agregat + per difficulty) — baseline vs graphrag
-3. Nilai TEP tunggal + interpretasi
+3. Nilai TEP tunggal + interpretasi -- TIDAK di modul ini lagi (poin 45): B di rumus TEP adalah
+   baseline skripsi DAIL-SQL, bukan GraphRAG 1-Stage, jadi langkah 3 dihitung di
+   notebooks/eval_tep.ipynb (src/experiments/tep_steps.py) untuk 1-Stage dan 2-Stage masing-masing
+   terhadap DAIL-SQL. Modul ini tetap menampilkan langkah 1-2 (1-Stage vs 2-Stage).
 
 RESOLVED: μ=3 dari guide menang, `PipelineConfig.token_output_weight` di
 src/core/config.py sudah diupdate ke 3.0 (sebelumnya 1.0 — lihat catatan di
@@ -28,13 +31,11 @@ setelah dim2_structure.py butuh pola yang sama persis -- lihat
 context/IMPLEMENTATION_DECISIONS.md poin 12).
 """
 
-from dataclasses import asdict
 from typing import List, Optional
 
 from src.core.config import PipelineConfig
 from src.metrics.esm_ex_cm import QueryEvalResult, aggregate_ex
 from src.metrics.token_consumption import compute_token_consumption, aggregate_token_consumption
-from src.metrics.tep import compute_tep
 from src.utils.raw_logs import DIFFICULTY_LEVELS, group_by_difficulty
 
 
@@ -81,38 +82,30 @@ def _condition_stats(logs: List[dict], mu: float) -> dict:
 def run_dimension_1(baseline_logs: List[dict], graphrag_logs: List[dict], cfg: PipelineConfig) -> dict:
     """
     Dimensi 1 -- Efisiensi Token & Performa (RM1). Guide Bagian 3, "Dimensi 1".
-    Urutan WAJIB: Token Consumption -> EX -> TEP (urutan key dict di bawah
-    mengikuti ini persis, dan itu juga urutan print_dimension_1() menampilkannya).
+    Urutan WAJIB: Token Consumption -> EX (urutan key dict di bawah mengikuti ini
+    persis, dan itu juga urutan print_dimension_1() menampilkannya). TEP dengan
+    DAIL-SQL sebagai B ada di notebooks/eval_tep.ipynb (poin 45).
     """
     if not baseline_logs or not graphrag_logs:
         raise ValueError(
             "baseline_logs/graphrag_logs kosong -- Dimensi 1 butuh minimal satu "
-            "query di kedua kondisi untuk menghitung TEP (tidak bisa dari data kosong)."
+            "query di kedua kondisi (tidak bisa dari data kosong)."
         )
 
     mu = cfg.token_output_weight
     baseline = _condition_stats(baseline_logs, mu)
     graphrag = _condition_stats(graphrag_logs, mu)
 
-    tep_result = compute_tep(
-        ex_baseline=baseline["ex"]["overall"],
-        ex_graphrag=graphrag["ex"]["overall"],
-        t_baseline=baseline["token_consumption"]["overall"]["mean"],
-        t_graphrag=graphrag["token_consumption"]["overall"]["mean"],
-    )
-
     return {
         "token_consumption": {"baseline": baseline["token_consumption"], "graphrag": graphrag["token_consumption"]},
         "ex": {"baseline": baseline["ex"], "graphrag": graphrag["ex"]},
-        "tep": asdict(tep_result),
     }
 
 
 def print_dimension_1(result: dict) -> None:
-    """Cetak hasil run_dimension_1() sesuai urutan WAJIB guide: token dulu, EX, baru TEP+interpretasi."""
+    """Cetak hasil run_dimension_1() sesuai urutan WAJIB guide: token dulu, lalu EX. TEP: eval_tep.ipynb."""
     tc = result["token_consumption"]
     ex = result["ex"]
-    tep = result["tep"]
 
     def _fmt(stats: Optional[dict], key: str) -> str:
         return f"{stats[key]:.1f}" if stats else "N/A"
@@ -142,5 +135,4 @@ def print_dimension_1(result: dict) -> None:
     print("\n" + "=" * 70)
     print("TEP (Token Elasticity of Performance)")
     print("=" * 70)
-    print(f"delta_EX = {tep['delta_ex']:.4f}   delta_T = {tep['delta_t']:.4f}   TEP = {tep['tep']:.4f}")
-    print(f"Interpretasi: {tep['interpretation']}")
+    print("Dihitung di notebooks/eval_tep.ipynb dengan DAIL-SQL sebagai B (poin 45).")

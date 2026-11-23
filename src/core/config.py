@@ -66,7 +66,7 @@ class PipelineConfig:
     # threshold (the score scales differ).
     table_similarity_threshold: float = 0.60
     # GraphRAG 1-Stage (baseline) table threshold, chosen separately in the threshold
-    # trial (poin 43). None = same as table_similarity_threshold (the trial grid uses
+    # trial (poin 46). None = same as table_similarity_threshold (the trial grid uses
     # this so 1-Stage follows each T). Read through baseline_table_threshold().
     baseline_table_similarity_threshold: float | None = 0.65
     # Longest n-gram of the question (unigram + bigram). Shared by GraphRAG Stage 1/2,
@@ -125,9 +125,11 @@ class PipelineConfig:
     value_max_numeric_ratio: float = 0.5     # column skipped if more values than this are pure numbers
     value_max_columns_per_value: int = 3     # value in more columns than this = too common, ignored
     value_max_linked_columns: int = 5        # max columns added per question
-    # Numbers ("played in 2013" -> matches.year). On since poin 43: the threshold
-    # trial that picked T/K ran with text + numbers (earlier off because of SLA trial G4).
-    value_link_numbers: bool = True
+    # Numbers ("played in 2013" -> matches.year). Off (fixed): in the SLA trial they
+    # added more false positives than recall (SLA trial, G4; see notebooks/trial_preprocessing.ipynb).
+    # The threshold trial that picked T/K ran with text + numbers, but the 7B eval_pipeline run
+    # used text only; kept off so 3B/7B/14B stay comparable (researcher, 2026-11-23, poin 46).
+    value_link_numbers: bool = False
     value_max_columns_per_number: int = 2    # stricter than text: small numbers sit in many columns
     value_number_skip_after: list[str] = field(default_factory=lambda: [
         "top", "first", "last", "limit",       # "top 3" is a LIMIT, not a cell value
@@ -173,6 +175,32 @@ class PipelineConfig:
     # --- Generation ---
     max_new_tokens: int = 256
     temperature: float = 0.0
+
+    # --- DAIL-SQL baseline (src/retrieval/dail.py, IMPLEMENTATION_DECISIONS.md point 43) ---
+    # DAIL's own code is vendored unchanged in dail_dir. dail_data_dir holds the output of
+    # DAIL's data_preprocess.py (src/experiments/dail_preprocess.py): the merged train file
+    # and enc/{test,train}_schema-linking.jsonl. On Kaggle point it at the uploaded dataset.
+    dail_dir: Path = Path("external/dail_sql")
+    dail_data_dir: Path = Path("data/dail")
+    # DAIL-SQL as published (run_dail_sql.sh): SQL representation, QA examples, k = 9,
+    # question-mask selection for the preliminary SQL, then DAIL Selection. Not tuned:
+    # the baseline is reproduced as is, only the LLM is swapped.
+    dail_prompt_repr: str = "SQL"
+    dail_example_type: str = "QA"
+    dail_pre_selector: str = "EUCDISQUESTIONMASK"
+    dail_selector: str = "EUCDISMASKPRESKLSIMTHR"
+    dail_k_shot: int = 9
+    dail_max_seq_len: int = 4096     # DAIL's example budget; its token counter returns 0, so never binding
+    dail_max_ans_len: int = 200
+    dail_scope_factor: int = 100     # candidate pool = k_shot x scope_factor
+    # Stop sequences of DAIL's completion mode (llm/chatgpt.py ask_completion: stop=[";"]).
+    # The prompt ends with "SELECT ", so Qwen is used in completion mode like text-davinci.
+    # "/*": DAIL's QA examples are "/* Answer the following: ... */\nSQL" without ";", so Qwen
+    # writes its SQL and then starts the next "/* Answer ..." block until max_new_tokens (~70 s per
+    # question on Kaggle T4). DAIL's own cleaner (process_duplication) drops everything after the
+    # first "/*", so stopping there gives the same SQL, only without the wasted tokens
+    # (IMPLEMENTATION_DECISIONS.md point 46). Empty list = stop only at EOS / max_new_tokens.
+    dail_stop_strings: list[str] = field(default_factory=lambda: [";", "/*"])
 
     # --- Mode ---
     use_full_schema_bypass: bool = False

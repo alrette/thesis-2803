@@ -535,7 +535,8 @@ def _cm_table(cm: dict) -> pd.DataFrame:
                         title="CM per clause")
 
 
-def _token_tep_tables(block: dict) -> list:
+def _token_tables(block: dict) -> list:
+    """Token 1-Stage vs 2-Stage. TEP tidak ada di sini: B = DAIL-SQL, lihat tep_steps.py (poin 45)."""
     rows = []
     for key, label in (("t_in", "Mean input tokens (T_in)"), ("t_out", "Mean output tokens (T_out)"),
                        ("t_mean", "Mean token consumption (T)"), ("t_median", "Median token consumption (T)")):
@@ -550,15 +551,10 @@ def _token_tep_tables(block: dict) -> list:
         if vb is not None or vg is not None:
             diff_rows.append({"Difficulty": DIFF_LABEL[d], "T 1-stage": vb, "T 2-stage": vg,
                               "Δ T": None if vb is None or vg is None else vg - vb})
-    tep = block["tep"]
-    tep_row = {"Status": tep["status"], "ΔEX (pp)": tep["delta_ex"] * 100 if "delta_ex" in tep else None,
-               "ΔT": tep.get("delta_t"), "TEP": tep.get("tep"), "Reason": tep.get("reason", "")}
     return [with_formats(pd.DataFrame(rows), {"1-stage": "num1", "2-stage": "num1", "Δ (2-stage − 1-stage)": "dnum1",
                                               "Relative change": "rel"}, title="Token consumption"),
             with_formats(pd.DataFrame(diff_rows), {"T 1-stage": "num1", "T 2-stage": "num1", "Δ T": "dnum1"},
-                         title="Mean token consumption by difficulty"),
-            with_formats(pd.DataFrame([tep_row]), {"ΔEX (pp)": "pp", "ΔT": "dnum1", "TEP": "num4"},
-                         title="TEP (2-stage vs 1-stage)")]
+                         title="Mean token consumption by difficulty")]
 
 
 def _qvt_table(qvt: dict) -> pd.DataFrame:
@@ -596,8 +592,6 @@ def metrics_summary_table(results: dict) -> pd.DataFrame:
     add("Mean input tokens (T_in)", token["baseline"].get("t_in"), token["graphrag"].get("t_in"), "num1")
     add("Mean output tokens (T_out)", token["baseline"].get("t_out"), token["graphrag"].get("t_out"), "num1")
     add("Mean token consumption (T)", token["baseline"].get("t_mean"), token["graphrag"].get("t_mean"), "num1")
-    tep = m["token_tep"]["tep"]
-    add("TEP (2-stage vs 1-stage)", None, tep.get("tep"), "num4", tep.get("reason", ""))
     qvt_b, qvt_g = m["qvt"]["baseline"], m["qvt"]["graphrag"]
     add("QVT", qvt_b.get("qvt"), qvt_g.get("qvt"), "pct", qvt_g.get("reason", ""))
     return with_formats(pd.DataFrame(rows), {},
@@ -614,7 +608,7 @@ def metric_tables(results: dict) -> list:
         ("M2 ESM", "Metric 2: Exact Set Match (ESM)", [_accuracy_table(m["esm"], "ESM by difficulty")]),
         ("M3 EX", "Metric 3: Execution Accuracy (EX)", [_accuracy_table(m["ex"], "EX by difficulty")]),
         ("M4 CM", "Metric 4: Component Match (CM)", [_cm_table(m["cm"])]),
-        ("M5 Token TEP", "Metric 5: Token Consumption and TEP", _token_tep_tables(m["token_tep"])),
+        ("M5 Token", "Metric 5: Token Consumption (TEP: eval_tep.ipynb)", _token_tables(m["token_tep"])),
         ("M6 QVT", "Metric 6: Query Variance Testing (QVT)", [_qvt_table(m["qvt"])]),
     ]
 
@@ -905,11 +899,8 @@ def dim1_tables(dims: Optional[dict]) -> list:
         "Mean T 1-stage": "num1", "Mean T 2-stage": "num1", "Δ mean T": "dnum1", "Relative change T": "rel",
         "Median T 1-stage": "num1", "Median T 2-stage": "num1", "EX 1-stage": "pct", "EX 2-stage": "pct", "Δ EX": "pp"},
         title="D1 · Token consumption and EX by difficulty")
-    t = r["tep"]
-    tep = with_formats(pd.DataFrame([{"ΔEX (pp)": t["delta_ex"], "ΔT (tokens)": t["delta_t"], "TEP": t["tep"]}]),
-                        {"ΔEX (pp)": "dnum3", "ΔT (tokens)": "dnum1", "TEP": "dnum4"},
-                        title="D1 · Token Elasticity of Performance (TEP)")
-    return [tokens, tep]
+    # TEP Dimensi 1 (B = DAIL-SQL) ada di eval_tep.ipynb; "tep" di dimensions_results.json lama diabaikan (poin 45)
+    return [tokens]
 
 
 def dim2_tables(dims: Optional[dict]) -> list:

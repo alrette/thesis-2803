@@ -239,7 +239,7 @@ def semantic_linking_table_level(
     (cfg.max_ngram, cfg.query_stopword_mode), each table is scored by the best
     (max) cosine any n-gram gives it, then
       1. tables below cfg.baseline_table_threshold() are dropped (1-Stage has its own
-         table threshold, poin 43; None falls back to table_similarity_threshold);
+         table threshold, poin 46; None falls back to table_similarity_threshold);
       2. if cfg.baseline_top_k_tables_pct > 0, at most
          k_from_pct(pct, #tables in DB) are kept (a cap, never a target);
       3. if nothing passes, the single best table is kept.
