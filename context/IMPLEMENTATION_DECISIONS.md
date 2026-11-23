@@ -930,6 +930,28 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 **Yang tetap:** `eval_dail.ipynb` masih menampilkan TEP terhadap DAIL-SQL untuk satu model kalau raw_logs 1-Stage/2-Stage ada di folder yang sama (fungsi yang sama, poin 43). `eval_tep.ipynb` adalah tempat TEP ketiga model dalam satu tabel. Prompt, retrieval, dan metrik lain tidak berubah.
 
 **Tes:** `python tests/test_tep_vs_dail.py` (sintetis: zip, Excel dari `rt.per_query()` + `Sheet`, prioritas zip, DAIL k = 5 diabaikan, pertanyaan berbeda, DAIL belum ada, ΔT = 0, simpan JSON/Excel). `tests/test_metrics_summary.py` disesuaikan. Notebook dijalankan lokal atas `outputs/tables/hasil_skripsi_7B.xlsx` (run 7B peneliti): 1-Stage EX 70.50% dan T 419.1 sama dengan sheet `Summary` run itu; semua baris `skipped` karena hasil DAIL-SQL belum ada.
+## 46. Threshold terpilih untuk ablation few-shot dan run final (2026-11-10, merge PR #21 2026-11-23)
+
+**Keputusan peneliti** (dari `hasil_trial_thresholds.xlsx`, `trial_thresholds.ipynb`, sampel stratified 20% = 207 query, EX zero-shot, 7B):
+- **GraphRAG 1-Stage: T = 0.65.** EX 70.5%, tertinggi di antara 1-Stage (T 0.50-0.70: 69.1-70.5%).
+- **GraphRAG 2-Stage: T = 0.60, K = 0.70.** EX 66.2%, recall kolom (gold tidak kosong) 93.8%, token prompt zero-shot −30.9% terhadap DDL penuh. Ini bukan EX 2-Stage tertinggi (68.1% di T0.55-0.60/K0.55-0.60). Pilihan ini menukar sekitar 2 pp EX dengan token yang lebih sedikit; pada n = 207, 2 pp setara kira-kira 4 query.
+- **Value linking teks + angka** (`value_link_numbers = True`): semua baris 2-Stage di trial itu memakai angka, jadi ablation dan run final memakai preprocessing yang sama. Ini menggantikan bagian "angka mati" di poin 30 (trial G4).
+
+**Yang berubah:**
+- Field baru `baseline_table_similarity_threshold` (default 0.65; `None` = sama dengan `table_similarity_threshold`), dibaca lewat `cfg.baseline_table_threshold()` di `baseline.py`. Stage 1 2-Stage tetap `table_similarity_threshold` (0.60). Kedua pipeline tetap memakai teks tabel nama saja (poin 39); yang berbeda hanya batas skornya.
+- `trial_steps.one_stage_trial()` memakai `baseline_table_similarity_threshold=None`, jadi 1-Stage di grid trial tetap mengikuti T tiap baris.
+- CLI: `--baseline-table-threshold` dan `--value-link-numbers true|false` (`pipeline.py`, `ablation.py`).
+- Laporan: `ablation_results.csv` kolom `table_threshold` berisi threshold efektif per mode, tabel konfigurasi notebook menampilkan keduanya, dan `run_metadata()` mencatat `baseline_table_similarity_threshold` sehingga `combine_models.py` memperingatkan kalau berbeda antar model.
+- Notebook: `ablation_fewshot.ipynb` (T 1-Stage / 2-Stage, K, angka) dan `eval_pipeline.ipynb` (`BASELINE_TABLE_THRESHOLD`); `trial_thresholds.ipynb` default `VALUE_NUMBERS = True` mengikuti `config.py`.
+
+**Konsekuensi:** run dengan default config sebelum perubahan ini (1-Stage di T 0.60, angka mati) tidak sebanding dengan run sesudahnya.
+
+**Tes:** `python tests/test_table_threshold.py` (embedder palsu: tabel dengan skor sekitar 0.62 lolos di 2-Stage, tidak lolos di 1-Stage; `None` mengikuti T 2-Stage; flag CLI).
+
+**Pembaruan (merge PR #21 ke `main`, keputusan peneliti 2026-11-23): value linking angka tetap MATI** (`value_link_numbers = False`), berbeda dengan butir "teks + angka" di atas. Alasannya, run penuh 7B `eval_pipeline` (`notebooks/eval-pipeline-7b.ipynb`, `hasil_skripsi_7B.xlsx`) sudah dijalankan dengan teks saja, jadi 3B dan 14B harus sama supaya ketiga model sebanding tanpa run ulang 7B. Konsekuensi yang perlu disebut di metodologi: T/K 2-Stage dipilih di trial yang memakai teks + angka, sedangkan run final memakai teks saja. `ablation_fewshot.ipynb` juga memakai teks saja (`VALUE_NUMBERS = False`). `trial_thresholds.ipynb` tetap tercatat apa adanya (dijalankan dengan `VALUE_NUMBERS = True`).
+
+**Threshold 1-Stage di `eval_pipeline.ipynb`:** `main` sebelumnya menerapkan `BASELINE_TABLE_THRESHOLD` dengan mengganti fungsi pilih tabel 1-Stage di memori notebook (commit `72686f7`). Setelah merge, notebook memakai field `baseline_table_similarity_threshold` dari PR ini, yang dibaca `baseline.py` lewat `cfg.baseline_table_threshold()`. Hasilnya sama (1-Stage memakai 0.65, 2-Stage 0.60), tanpa mengganti fungsi di memori. `metrics_summary.baseline_table_threshold(cfg)` sekarang memanggil method itu.
+
 
 ### F. Baseline DAIL-SQL belum diimplementasikan
 

@@ -40,7 +40,7 @@ from src.utils import timing  # noqa: E402
 CONDITIONS = ("baseline", "graphrag")
 CONDITION_LABELS = {"baseline": "1-stage", "graphrag": "2-stage"}
 RESULTS_FILENAME = "metrics_results.json"
-VARIANT_KEYS = ("baseline_embed_columns", "use_value_linking", "value_link_numbers", "query_stopword_mode",
+VARIANT_KEYS = ("baseline_table_similarity_threshold", "baseline_embed_columns", "use_value_linking", "value_link_numbers", "query_stopword_mode",
                 "traversal_mode", "connect_no_pk_tables", "embed_natural_names", "max_ngram")
 
 
@@ -158,9 +158,13 @@ def _git_commit() -> Optional[str]:
 
 
 def baseline_table_threshold(cfg) -> float:
-    """Threshold tabel GraphRAG 1-Stage. eval_pipeline.ipynb boleh memberi nilai sendiri lewat atribut
-    cfg.baseline_table_threshold (BASELINE_TABLE_THRESHOLD); tanpa itu sama dengan threshold tabel 2-Stage."""
-    return getattr(cfg, "baseline_table_threshold", cfg.table_similarity_threshold)
+    """Threshold tabel GraphRAG 1-Stage yang benar-benar dipakai baseline.py: cfg.baseline_table_similarity_threshold
+    (BASELINE_TABLE_THRESHOLD di eval_pipeline.ipynb), atau threshold tabel 2-Stage kalau None."""
+    method = getattr(cfg, "baseline_table_threshold", None)
+    if callable(method):
+        return method()
+    value = getattr(cfg, "baseline_table_similarity_threshold", None)
+    return cfg.table_similarity_threshold if value is None else value
 
 
 def run_metadata(cfg, sample_ratio: float) -> dict:

@@ -223,8 +223,8 @@ def test_metadata_records_1stage_table_threshold():
                           table_similarity_threshold=0.6, semantic_similarity_threshold=0.7)
     # Tanpa BASELINE_TABLE_THRESHOLD: 1-Stage memakai threshold tabel yang sama dengan 2-Stage
     assert run_metadata(cfg, 1.0)["baseline_table_threshold"] == 0.6
-    # eval_pipeline.ipynb mengisi cfg.baseline_table_threshold
-    cfg.baseline_table_threshold = 0.65
+    # eval_pipeline.ipynb mengisi baseline_table_similarity_threshold (BASELINE_TABLE_THRESHOLD)
+    cfg.baseline_table_similarity_threshold = 0.65
     meta = run_metadata(cfg, 1.0)
     assert meta["table_threshold"] == 0.6 and meta["baseline_table_threshold"] == 0.65
 
