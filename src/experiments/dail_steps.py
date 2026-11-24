@@ -191,9 +191,11 @@ def load_dail(cfg, auto_preprocess: bool = True):
     with timing.run_step("dail_setup"):
         dail = dail_mod.load_dail(cfg)
     # Tampilkan ukuran pool contoh dan jumlah pertanyaan dev
-    print(f"DAIL siap: {len(dail.pre_prompt.train_json)} contoh train, {len(dail.targets)} pertanyaan dev unik")
-    # Kembalikan objek DAIL
-    return dail
+    # Ukuran pool contoh; k = 0 memakai kelas zero-shot DAIL yang tidak punya selector (tanpa train_json)
+    pool = getattr(dail.pre_prompt, "train_json", None)
+    # Tampilkan ukuran pool contoh dan jumlah pertanyaan dev
+    print(f"DAIL siap (k = {cfg.dail_k_shot}): "
+          f"{'tanpa contoh few-shot' if pool is None else f'{len(pool)} contoh train'}, {len(dail.targets)} pertanyaan dev unik")
 
 
 # Menghitung kolom per tabel dari db_schema evaluator (sama isinya dengan columns_per_table() dari graph)
