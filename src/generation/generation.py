@@ -219,6 +219,8 @@ def generate_sql_with_token_count(
     with timing.step("prompt_tokenize"):
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
+    # Stop at the "```" that closes the ```sql block (cfg.sql_stop_strings, point 47)
+    stop = {"stop_strings": list(cfg.sql_stop_strings), "tokenizer": tokenizer} if cfg.sql_stop_strings else {}
     with timing.step("llm_generate"), torch.no_grad():
         outputs = model.generate(
             **inputs,
@@ -226,6 +228,7 @@ def generate_sql_with_token_count(
             temperature=cfg.temperature,
             do_sample=False,
             pad_token_id=tokenizer.eos_token_id,
+            **stop,
         )
 
     with timing.step("sql_clean"):

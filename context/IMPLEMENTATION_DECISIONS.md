@@ -953,6 +953,16 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 **Threshold 1-Stage di `eval_pipeline.ipynb`:** `main` sebelumnya menerapkan `BASELINE_TABLE_THRESHOLD` dengan mengganti fungsi pilih tabel 1-Stage di memori notebook (commit `72686f7`). Setelah merge, notebook memakai field `baseline_table_similarity_threshold` dari PR ini, yang dibaca `baseline.py` lewat `cfg.baseline_table_threshold()`. Hasilnya sama (1-Stage memakai 0.65, 2-Stage 0.60), tanpa mengganti fungsi di memori. `metrics_summary.baseline_table_threshold(cfg)` sekarang memanggil method itu.
 
 
+## 47. Stop string generate 1-Stage/2-Stage: berhenti di penutup ```` ``` ```` (2026-11-24)
+
+**Masalah:** run `eval_pipeline` 3B di Kaggle ~25 detik per pertanyaan (1-Stage + 2-Stage), sedangkan run 7B ~5,8 detik. Generate hanya berhenti di EOS atau `max_new_tokens` = 256; tidak ada stop string. Prompt berakhir dengan `### Answer` + ```` ```sql ````, jadi model harus menutup blok lalu berhenti sendiri. Kalau model melanjutkan (penjelasan, `### Question` karangan), `_clean_sql()` membuang teks itu sehingga SQL di log tetap rapi, tapi tokennya ikut dihitung di T_out dan memakan waktu. Polanya sama dengan DAIL (stop string `/*`, `config.py` `dail_stop_strings`). Kecepatan 3B cocok dengan ~256 token per pipeline; dugaan ini belum dikonfirmasi dari T_out run 3B.
+
+**Perubahan:** `cfg.sql_stop_strings = ["```"]`, dioper ke `model.generate()` di `generate_sql_with_token_count()` (dipakai `eval_pipeline`, `pipeline.py`, `ablation.py`, `trial_steps.py`). ```` ```sql ```` di ujung prompt tidak memicu stop (stop string hanya dicek di ujung urutan token, dan prompt berakhir dengan baris baru setelahnya).
+
+**SQL tidak berubah:** `_clean_sql()` membuang semua teks setelah SQL (baris kosong, fence baru, `###`), jadi teks yang terpotong di ```` ``` ```` penutup menghasilkan SQL yang sama. Diuji 25 kombinasi SQL x lanjutan (penjelasan, `### Question` baru, blok ```` ```sql ```` kedua, `;`): 0 beda. Satu-satunya kasus yang bisa berbeda adalah teks yang menempel di baris yang sama setelah ```` ``` ```` (mis. ```` ```Explanation ````); sebelumnya teks itu ikut masuk SQL, jadi ini memperbaiki, bukan memperburuk. Mekanisme `StopStringCriteria` transformers dites dengan tokenizer BPE lokal: tidak menyala pada prompt, menyala tepat setelah ```` ``` ```` penutup. Model Qwen asli belum dites (HuggingFace tidak bisa diakses dari mesin uji).
+
+**Efek ke metrik:** EX/ESM/CM/SLA tidak berubah. T_out hanya berubah untuk pertanyaan yang modelnya tidak berhenti sendiri; T_out kini hanya SQL + ```` ``` ````. Run 7B dan 14B yang sudah selesai dijalankan tanpa stop string; kalau modelnya sudah berhenti sendiri setelah ```` ``` ````, T_out-nya sama dengan yang akan dihasilkan sekarang.
+
 ### F. Baseline DAIL-SQL belum diimplementasikan
 
 🟡 **Sebagian.** Pembanding TEP diputuskan 2026-11-20 (poin 45): B = DAIL-SQL untuk 1-Stage dan 2-Stage, di `eval_tep.ipynb`. Yang masih terbuka: Dimensi 2-6 dengan DAIL dan satu Excel gabungan tiga kondisi. Status 2026-11-11 (poin 43): DAIL-SQL sudah bisa dijalankan dan dievaluasi lewat `notebooks/eval_dail.ipynb`; penggabungan tiga kondisi (Excel, dimensi, `combine_models.py`) belum. Teks asli di bawah dipertahankan sebagai catatan historis.

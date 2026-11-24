@@ -175,6 +175,13 @@ class PipelineConfig:
     # --- Generation ---
     max_new_tokens: int = 256
     temperature: float = 0.0
+    # Stop sequences for 1-Stage/2-Stage generation (generation.py). The prompt ends with
+    # "### Answer\n```sql\n", so the first "```" the model writes closes the SQL block.
+    # Without it the model may keep writing (explanation, new "### ..." sections) until
+    # max_new_tokens; _clean_sql() throws that text away, so the SQL is the same, but the
+    # wasted tokens count in T_out and cost time (3B: ~25 s per question vs ~6 s for 7B).
+    # IMPLEMENTATION_DECISIONS.md point 47. Empty list = stop only at EOS / max_new_tokens.
+    sql_stop_strings: list[str] = field(default_factory=lambda: ["```"])
 
     # --- DAIL-SQL baseline (src/retrieval/dail.py, IMPLEMENTATION_DECISIONS.md point 43) ---
     # DAIL's own code is vendored unchanged in dail_dir. dail_data_dir holds the output of
