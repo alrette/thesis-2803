@@ -197,6 +197,8 @@ def load_dail(cfg, auto_preprocess: bool = True):
     print(f"DAIL siap (k = {cfg.dail_k_shot}): "
           f"{'tanpa contoh few-shot' if pool is None else f'{len(pool)} contoh train'}, {len(dail.targets)} pertanyaan dev unik")
 
+    return dail
+
 
 # Menghitung kolom per tabel dari db_schema evaluator (sama isinya dengan columns_per_table() dari graph)
 def columns_per_table(evaluator) -> Counter:
