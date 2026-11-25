@@ -194,9 +194,11 @@ def dail_postprocess(dail: DailBaseline, text: str) -> str:
     """Cleaner SQL DAIL, disalin dari ask_llm.py (cabang n == 1, baris 80-90) apa adanya."""
     sql = " ".join(text.replace("\n", " ").split())
     sql = dail.dail["process_duplication"](sql)
+    # Adaptasi untuk Qwen (bukan bagian ask_llm.py): tanpa contoh (k = 0) Qwen kadang menutup jawaban
+    # dengan pagar markdown ``` dan mengulanginya. Potong di ``` pertama, sama seperti DAIL memotong di "/*".
+    sql = sql.split("```")[0]
     if sql.startswith("SELECT"):
         return sql
-    sql = sql.split("```")[0]
     if sql.startswith(" "):
         return "SELECT" + sql
     return "SELECT " + sql
