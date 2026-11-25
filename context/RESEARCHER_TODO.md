@@ -116,13 +116,14 @@ lokal) — jalankan di Kaggle.
   - [x] ~~Preprocessing DAIL manual di environment terpisah~~ — sejak poin 44 jalan otomatis di `eval_dail.ipynb` (Internet = On, sekali per sesi, beberapa puluh menit). Opsional: simpan `data/dail/` hasil run sebagai Kaggle Dataset lalu arahkan `DAIL_DATA_DIR` ke situ supaya run berikutnya lebih cepat.
   - [ ] Jalankan `notebooks/eval_dail.ipynb` per model, dengan `MODEL` dan `SAMPLE_RATIO` yang sama dengan `eval_pipeline.ipynb` (uji dulu `SAMPLE_RATIO = 0.05`).
   - [x] ~~Putuskan pasangan TEP~~ — DIPUTUSKAN 2026-11-20 (poin 45): B = DAIL-SQL, untuk 1-Stage dan 2-Stage, per model.
-  - [ ] **TEP vs DAIL-SQL** (`notebooks/eval_tep.ipynb`, tanpa GPU) setelah ketiga model punya hasil 1-Stage/2-Stage dan DAIL-SQL:
-    ekstrak `hasil_<MODEL>.zip` ke `outputs/models/` dan `hasil_dail_<MODEL>.zip` ke `outputs/models/Qwen2.5-Coder-<MODEL>-Instruct/`
-    (atau taruh `hasil_skripsi_<MODEL>.xlsx` dan `hasil_dail_<MODEL>.xlsx` di `outputs/tables/`), lalu jalankan notebook-nya.
-    Syarat: `eval_dail` dijalankan dengan `MODEL`, `SAMPLE_RATIO`, dan seed yang sama dengan `eval_pipeline`, dan `DAIL_K_SHOT = 9`.
-    Run 7B (1-Stage/2-Stage) sudah ada di `outputs/tables/hasil_skripsi_7B.xlsx`; yang kurang DAIL-SQL 7B, lalu 3B dan 14B.
-  - [ ] Tulis di metodologi: k few-shot DAIL (9) berbeda dengan 1-Stage/2-Stage (run 7B: k = 0), jadi ΔT terhadap DAIL juga memuat
-    token contoh few-shot dan schema penuh DAIL, bukan hanya selisih retrieval. Tabel interpretasi TEP di guide mengasumsikan ΔT < 0.
+  - [ ] **TEP vs DAIL-SQL** (`notebooks/eval_tep.ipynb`, tanpa GPU), tiga perbandingan k (poin 48, `COMPARISONS`):
+    GraphRAG K0 vs DAIL K9, GraphRAG K0 vs DAIL K0, GraphRAG K9 vs DAIL K9. Taruh Excel di `outputs/tables/` dengan k di akhiran
+    nama file (`hasil_skripsi_<MODEL>_K9.xlsx`, `hasil_dail_<MODEL>_K0.xlsx`; tanpa akhiran = GraphRAG k 0 / DAIL k 9), atau
+    ekstrak zip tiap k ke folder sendiri di `outputs/models/`. Syarat: `MODEL`, `SAMPLE_RATIO`, dan seed sama antara `eval_pipeline`
+    dan `eval_dail`. Status 2026-11-25: GraphRAG K0 (7B, 14B), GraphRAG K9 (3B, 7B, 14B), DAIL K9 (3B, 7B, 14B) sudah ada;
+    yang kurang GraphRAG 3B K0 dan DAIL K0 ketiga model.
+  - [ ] Tulis di metodologi: pada GraphRAG K0 vs DAIL K9, ΔT juga memuat token contoh few-shot dan schema penuh DAIL, bukan hanya
+    selisih retrieval; K0 vs K0 dan K9 vs K9 menyamakan jumlah contoh. Tabel interpretasi TEP di guide mengasumsikan ΔT < 0.
   - [ ] Putuskan (dengan pembimbing) cara menggabungkan tiga kondisi untuk Dimensi 2-6 dan satu Excel (pilihan A, open item F).
 
 - [x] **Definisi final Baseline** — DIPUTUSKAN 2026-09-06: **table-level

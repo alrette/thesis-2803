@@ -1,29 +1,32 @@
 """
-tep_steps.py — langkah-langkah notebooks/eval_tep.ipynb: TEP dengan DAIL-SQL sebagai B (poin 45).
+tep_steps.py — langkah-langkah notebooks/eval_tep.ipynb: TEP dengan DAIL-SQL sebagai B (poin 45, 48).
 
 TEP_c = (ΔEX / EX_B) / (ΔT / T_B), Δ = kondisi c − B, dengan B = DAIL-SQL (baseline skripsi) dan
 c = GraphRAG 1-Stage atau GraphRAG 2-Stage, per model (3B, 7B, 14B). Rumusnya tetap compute_tep()
 di src/metrics/tep.py, dipanggil lewat metrics_summary._tep() yang sama dengan eval_dail.ipynb.
 Tidak ada formula baru dan tidak ada run GPU: semua angka dibaca dari hasil run yang sudah disimpan.
 
-Sumber per model dan kondisi (urutan prioritas):
+Perbandingan ditentukan peneliti sebagai daftar pasangan (k few-shot GraphRAG, k DAIL-SQL), mis.
+[(0, 9), (0, 0), (9, 9)] (poin 48). Satu run = satu model x kondisi x k; tiap pasangan memakai run
+GraphRAG dengan k pertama dan run DAIL-SQL dengan k kedua.
+
+Sumber per model, kondisi, dan k (urutan prioritas):
 1. Hasil zip yang diekstrak (`hasil_<MODEL>.zip`, `hasil_dail_<MODEL>.zip`): metadata dari
    `tables/metrics_results.json` atau `tables/dail/dail_metrics_results.json`, raw_logs dari folder
-   `raw_logs/` di sebelahnya. Model, sampel, dan k few-shot bisa dicek dari metadata.
-2. Excel unduhan (`hasil_skripsi_<MODEL>.xlsx`, `hasil_dail_<MODEL>.xlsx`): sheet `Per Query`
-   (EX, T_in, T_out per pertanyaan). Metadata tidak ada, jadi k few-shot tidak bisa dicek.
+   `raw_logs/` di sebelahnya. Model, sampel, dan k few-shot dibaca dari metadata.
+2. Excel unduhan (`hasil_skripsi_<MODEL>[_K<k>].xlsx`, `hasil_dail_<MODEL>[_K<k>].xlsx`): sheet
+   `Per Query` (EX, T_in, T_out per pertanyaan). Metadata tidak ada, jadi k dibaca dari akhiran nama
+   file `_K<k>` (huruf besar/kecil sama saja). Tanpa akhiran, k = `excel_default_k` dari notebook.
 
 Pemeriksaan sebelum TEP dihitung (kalau gagal, baris itu dilewati dengan alasan, bukan crash):
 - model sama (dikelompokkan per ukuran 3B/7B/14B; nama lengkap juga dicek kalau ada metadata),
-- pertanyaan sama persis (query_id, db_id, gold SQL), jadi SAMPLE_RATIO dan seed sama,
-- run DAIL dengan k = cfg.dail_k_shot (9, baseline skripsi); run ablation k lain tidak dipakai.
-k few-shot 1-Stage/2-Stage memang berbeda dengan DAIL (best config masing-masing, poin 43), jadi
-hanya ditampilkan. T dihitung ulang dari token_input dan token_output dengan α yang sama untuk semua.
+- pertanyaan sama persis (query_id, db_id, gold SQL), jadi SAMPLE_RATIO dan seed sama.
+T dihitung ulang dari token_input dan token_output dengan α yang sama untuk semua.
 """
 
 # json untuk membaca dan menulis file JSON
 import json
-# re untuk mengambil ukuran model dari nama
+# re untuk mengambil ukuran model dan k dari nama
 import re
 # Wadah data sederhana
 from dataclasses import dataclass, field
@@ -58,9 +61,11 @@ DEFAULT_INPUT_DIRS = (Path("outputs/models"), Path("outputs/tables"))
 EXCEL_SUFFIX = {"baseline": " 1-stage", "graphrag": " 2-stage", "dail": ""}
 # Label tingkat kesulitan Excel -> kunci raw_logs
 DIFF_KEY = {v: k for k, v in rt.DIFF_LABEL.items()}
+# Akhiran k di nama file Excel: hasil_skripsi_7B_K9, hasil_dail_7B_k0
+K_SUFFIX = re.compile(r"_k(\d+)$", re.IGNORECASE)
 
 
-# Satu hasil run untuk satu model dan satu kondisi
+# Satu hasil run untuk satu model, satu kondisi, dan satu k
 @dataclass
 class Run:
     # Ukuran model, mis. "7B"
@@ -69,12 +74,14 @@ class Run:
     condition: str
     # File asal (JSON metadata atau Excel)
     source: Path
-    # Metadata run; kosong untuk Excel
+    # Metadata run; untuk Excel hanya berisi k
     meta: dict = field(default_factory=dict)
     # Catatan per pertanyaan: query_id, db_id, gold_sql, difficulty, ex_result, token_input, token_output
     logs: Optional[list] = None
     # Alasan logs tidak bisa dibaca
     problem: str = ""
+    # Asal nilai k: "metadata", "nama file", atau "default"
+    k_from: str = "metadata"
 
     # "json" atau "excel"
     @property
@@ -98,6 +105,11 @@ def model_size(name: str) -> Optional[str]:
 # Urutan model: 3B, 7B, 14B
 def _size_key(model: str) -> float:
     return float(model[:-1]) if model and model[:-1].replace(".", "").isdigit() else float("inf")
+
+
+# Nama perbandingan, mis. "GraphRAG K0 vs DAIL-SQL K9"
+def comparison_label(k_graphrag: int, k_dail: int) -> str:
+    return f"GraphRAG K{k_graphrag} vs DAIL-SQL K{k_dail}"
 
 
 # ---------------------------------------------------------------------------
@@ -144,21 +156,28 @@ def _with_logs(run: Run, root: Path) -> Run:
     return run
 
 
+# k dari nama file Excel, atau default per kondisi; (k, asal k)
+def _excel_k(path: Path, cond: str, default_k: dict) -> tuple:
+    found = K_SUFFIX.search(path.stem)
+    if found:
+        return int(found.group(1)), "nama file"
+    # Tanpa akhiran _K: "pipeline" untuk 1-Stage/2-Stage, "dail" untuk DAIL-SQL
+    return default_k.get("dail" if cond == "dail" else "pipeline"), "default"
+
+
 # Excel unduhan: sheet Per Query
-def _excel_runs(root: Path) -> list:
+def _excel_runs(root: Path, default_k: dict) -> list:
     runs = []
-    # hasil_skripsi_<MODEL>.xlsx berisi 1-Stage dan 2-Stage
-    for path in sorted(root.rglob("hasil_skripsi_*.xlsx")):
-        rows = _per_query_rows(path)
-        for cond in PIPELINES:
-            runs.append(_excel_run(path, cond, rows))
-    # hasil_dail_<MODEL>.xlsx = DAIL k = 9; hasil_dail_<MODEL>_k<k>.xlsx = ablation k lain
-    for path in sorted(root.rglob("hasil_dail_*.xlsx")):
-        k = re.search(r"_k(\d+)$", path.stem)
-        run = _excel_run(path, "dail", _per_query_rows(path))
-        # k dari nama file (konvensi RUN_NAME di eval_dail.ipynb); None = k bawaan
-        run.meta = {"dail": {"dail_k_shot": int(k.group(1)) if k else None}}
-        runs.append(run)
+    # hasil_skripsi_<MODEL>[_K<k>].xlsx berisi 1-Stage dan 2-Stage; hasil_dail_<MODEL>[_K<k>].xlsx berisi DAIL
+    for pattern, conds in (("hasil_skripsi_*.xlsx", PIPELINES), ("hasil_dail_*.xlsx", ("dail",))):
+        for path in sorted(root.rglob(pattern)):
+            rows = _per_query_rows(path)
+            for cond in conds:
+                run = _excel_run(path, cond, rows)
+                k, run.k_from = _excel_k(path, cond, default_k)
+                # Simpan k di tempat yang sama dengan metadata zip
+                run.meta = {"dail": {"dail_k_shot": k}} if cond == "dail" else {"few_shot_k": k}
+                runs.append(run)
     return runs
 
 
@@ -206,45 +225,57 @@ def _excel_run(path: Path, cond: str, rows: list) -> Run:
     return run
 
 
-# Mencari semua hasil run dan memilih satu per model dan kondisi
-def find_runs(input_dirs: Iterable[Path] = DEFAULT_INPUT_DIRS, dail_k: Optional[int] = None) -> tuple[dict, list]:
-    """({model: {kondisi: Run}}, catatan). JSON (zip) diutamakan daripada Excel; dua sumber sejenis = dilewati.
+# Mencari semua hasil run dan memilih satu per model, kondisi, dan k
+def find_runs(input_dirs: Iterable[Path] = DEFAULT_INPUT_DIRS, excel_default_k: Optional[dict] = None) -> tuple[dict, list]:
+    """({model: {(kondisi, k): Run}}, catatan). JSON (zip) diutamakan daripada Excel; dua sumber sejenis = dilewati.
 
-    dail_k = k DAIL-SQL baseline skripsi; run DAIL dengan k lain (ablation) diabaikan dengan catatan."""
+    excel_default_k = {"pipeline": k, "dail": k}: k untuk file Excel tanpa akhiran _K<k>."""
+    default_k = excel_default_k or {}
     found, notes = [], []
     for root in map(Path, input_dirs):
         if not root.exists():
             notes.append(f"Folder tidak ada: {root}")
             continue
-        found += _json_runs(root) + _excel_runs(root)
-    # Kelompokkan per model dan kondisi
+        found += _json_runs(root) + _excel_runs(root, default_k)
+    # Kelompokkan per model, kondisi, dan k
     grouped: dict = {}
     for run in found:
         if run.model is None:
             notes.append(f"Ukuran model tidak dikenali dari {run.source}, dilewati")
             continue
-        if run.condition == "dail" and dail_k is not None and run.k is not None and run.k != dail_k:
-            notes.append(f"{run.model} DAIL-SQL k = {run.k} (ablation) tidak dipakai sebagai B: {run.source}")
+        if run.k is None:
+            notes.append(f"{run.model} {LABELS[run.condition]}: k few-shot tidak diketahui ({run.source}); "
+                         "beri akhiran _K<k> di nama file atau isi EXCEL_DEFAULT_K, dilewati")
             continue
-        grouped.setdefault(run.model, {}).setdefault(run.condition, []).append(run)
+        grouped.setdefault(run.model, {}).setdefault((run.condition, run.k), []).append(run)
     runs: dict = {}
-    for model, by_cond in grouped.items():
-        for cond, candidates in by_cond.items():
+    for model, by_key in grouped.items():
+        for (cond, k), candidates in by_key.items():
             # Zip (JSON) diutamakan karena metadatanya bisa dicek
             for kind in ("json", "excel"):
                 same = [r for r in candidates if r.kind == kind]
                 if not same:
                     continue
                 if len(same) > 1:
-                    notes.append(f"{model} {LABELS[cond]}: ditemukan {len(same)} hasil ({', '.join(str(r.source) for r in same)}); "
-                                 "sisakan satu, kondisi ini dilewati")
+                    notes.append(f"{model} {LABELS[cond]} k = {k}: ditemukan {len(same)} hasil "
+                                 f"({', '.join(str(r.source) for r in same)}); sisakan satu, run ini dilewati")
                 else:
-                    runs.setdefault(model, {})[cond] = same[0]
+                    runs.setdefault(model, {})[(cond, k)] = same[0]
                     unused = [r for r in candidates if r.kind != kind]
                     if unused:
-                        notes.append(f"{model} {LABELS[cond]}: memakai {same[0].source}, bukan {unused[0].source}")
+                        notes.append(f"{model} {LABELS[cond]} k = {k}: memakai {same[0].source}, bukan {unused[0].source}")
                 break
     return dict(sorted(runs.items(), key=lambda kv: _size_key(kv[0]))), notes
+
+
+# Run yang ditemukan tapi tidak dipakai perbandingan mana pun
+def unused_runs(runs: dict, comparisons: Iterable[tuple]) -> list:
+    comparisons = list(comparisons)
+    used_pipeline = {kg for kg, _ in comparisons}
+    used_dail = {kd for _, kd in comparisons}
+    return [f"{model} {LABELS[cond]} k = {k} tidak dipakai perbandingan mana pun: {run.source}"
+            for model, by_key in runs.items() for (cond, k), run in by_key.items()
+            if k not in (used_dail if cond == "dail" else used_pipeline)]
 
 
 # ---------------------------------------------------------------------------
@@ -252,14 +283,12 @@ def find_runs(input_dirs: Iterable[Path] = DEFAULT_INPUT_DIRS, dail_k: Optional[
 # ---------------------------------------------------------------------------
 
 # Alasan run DAIL tidak bisa dipakai sebagai B, atau "" kalau bisa
-def _dail_problem(model: str, dail: Optional[Run], dail_k: int) -> str:
+def _dail_problem(model: str, dail: Optional[Run], k_dail: int) -> str:
     if dail is None:
-        return f"hasil DAIL-SQL belum ada (jalankan eval_dail.ipynb, ekstrak hasil_dail_{model}.zip)"
+        return (f"hasil DAIL-SQL k = {k_dail} belum ada (eval_dail.ipynb dengan DAIL_K_SHOT = {k_dail}, "
+                f"model {model})")
     if dail.logs is None:
         return f"DAIL-SQL: {dail.problem}"
-    # Excel tanpa akhiran _k = k bawaan
-    if dail.k is not None and dail.k != dail_k:
-        return f"run DAIL-SQL k = {dail.k} adalah ablation, bukan baseline skripsi (k = {dail_k})"
     return ""
 
 
@@ -284,49 +313,55 @@ def _warnings(run: Run, dail: Run) -> list:
         if r.kind == "json" and r.meta.get("is_full_run") is False:
             out.append(f"{LABELS[r.condition]}: run percobaan (SAMPLE_RATIO = {r.meta.get('sample_ratio')})")
         if r.kind == "excel":
-            out.append(f"{LABELS[r.condition]}: dari Excel, k few-shot dan model lengkap tidak bisa dicek")
+            k_from = "akhiran nama file" if r.k_from == "nama file" else "EXCEL_DEFAULT_K (nama file tanpa _K)"
+            out.append(f"{LABELS[r.condition]}: dari Excel, k dari {k_from}, model lengkap tidak bisa dicek")
     return out
 
 
-# Tabel TEP: satu baris per model x pipeline, B = DAIL-SQL
-def tep_rows(runs: dict, alpha: float, dail_k: int, models: Iterable[str] = ()) -> list:
-    """models = model yang diharapkan (mis. 3B/7B/14B); yang belum punya hasil tetap dapat baris berstatus skipped."""
+# Tabel TEP: satu baris per model x perbandingan x pipeline, B = DAIL-SQL
+def tep_rows(runs: dict, alpha: float, comparisons: Iterable[tuple], models: Iterable[str] = ()) -> list:
+    """comparisons = [(k GraphRAG, k DAIL-SQL), ...]; models = model yang diharapkan (mis. 3B/7B/14B).
+    Pasangan yang belum punya hasil tetap dapat baris berstatus skipped."""
+    comparisons = list(comparisons)
     rows = []
     for model in sorted(set(models) | set(runs), key=_size_key):
-        by_cond = runs.get(model, {})
-        dail = by_cond.get("dail")
-        dail_problem = _dail_problem(model, dail, dail_k)
-        for cond in PIPELINES:
-            run = by_cond.get(cond)
-            row = {"Model": model, "Pipeline": LABELS[cond], "B": LABELS["dail"], "Status": "skipped",
-                   "Few-shot k": run.k if run else None, "DAIL k": dail.k if dail else None,
-                   "Source pipeline": str(run.source) if run else "", "Source DAIL": str(dail.source) if dail else ""}
-            # Hasil pipeline belum ada atau rusak
-            if run is None or run.logs is None:
-                row["Note"] = run.problem if run else f"hasil {LABELS[cond]} belum ada (ekstrak hasil_{model}.zip)"
-            elif dail_problem:
-                row["Note"] = dail_problem
-            elif (problem := _pair_problem(run, dail)):
-                row["Note"] = problem
-            else:
-                # Angka mentah dulu (EX, T), baru TEP (urutan guide Dimensi 1)
-                ex_b, ex_c = (sum(e["ex_result"] for e in logs) / len(logs) for logs in (dail.logs, run.logs))
-                t_b, t_c = (sum(rt._t(e, alpha) for e in logs) / len(logs) for logs in (dail.logs, run.logs))
-                # Fungsi yang sama dengan eval_dail.ipynb: B = DAIL, kondisi = pipeline
-                tep = _tep(dail.logs, run.logs, alpha)
-                # Alasan TEP tidak terdefinisi (kalau ada) dan peringatan
-                notes = ([tep["reason"]] if "reason" in tep else []) + _warnings(run, dail)
-                row.update({"Status": tep["status"], "Queries": len(run.logs), "EX DAIL-SQL": ex_b, "EX pipeline": ex_c,
-                            "ΔEX (pp)": (ex_c - ex_b) * 100, "T DAIL-SQL": t_b, "T pipeline": t_c, "ΔT": t_c - t_b,
-                            "Relative ΔT": (t_c - t_b) / t_b if t_b else None, "TEP": tep.get("tep"),
-                            "Note": "; ".join(notes)})
-            rows.append(row)
+        by_key = runs.get(model, {})
+        for k_g, k_d in comparisons:
+            dail = by_key.get(("dail", k_d))
+            dail_problem = _dail_problem(model, dail, k_d)
+            for cond in PIPELINES:
+                run = by_key.get((cond, k_g))
+                row = {"Model": model, "Comparison": comparison_label(k_g, k_d), "Pipeline": LABELS[cond],
+                       "B": LABELS["dail"], "Status": "skipped", "Few-shot k": k_g, "DAIL k": k_d,
+                       "Source pipeline": str(run.source) if run else "", "Source DAIL": str(dail.source) if dail else ""}
+                # Hasil pipeline belum ada atau rusak
+                if run is None or run.logs is None:
+                    row["Note"] = run.problem if run else (f"hasil {LABELS[cond]} k = {k_g} belum ada "
+                                                           f"(eval_pipeline.ipynb dengan FEW_SHOT_K = {k_g}, model {model})")
+                elif dail_problem:
+                    row["Note"] = dail_problem
+                elif (problem := _pair_problem(run, dail)):
+                    row["Note"] = problem
+                else:
+                    # Angka mentah dulu (EX, T), baru TEP (urutan guide Dimensi 1)
+                    ex_b, ex_c = (sum(e["ex_result"] for e in logs) / len(logs) for logs in (dail.logs, run.logs))
+                    t_b, t_c = (sum(rt._t(e, alpha) for e in logs) / len(logs) for logs in (dail.logs, run.logs))
+                    # Fungsi yang sama dengan eval_dail.ipynb: B = DAIL, kondisi = pipeline
+                    tep = _tep(dail.logs, run.logs, alpha)
+                    # Alasan TEP tidak terdefinisi (kalau ada) dan peringatan
+                    notes = ([tep["reason"]] if "reason" in tep else []) + _warnings(run, dail)
+                    row.update({"Status": tep["status"], "Queries": len(run.logs), "EX DAIL-SQL": ex_b,
+                                "EX pipeline": ex_c, "ΔEX (pp)": (ex_c - ex_b) * 100, "T DAIL-SQL": t_b,
+                                "T pipeline": t_c, "ΔT": t_c - t_b, "Relative ΔT": (t_c - t_b) / t_b if t_b else None,
+                                "TEP": tep.get("tep"), "Note": "; ".join(notes)})
+                rows.append(row)
     return rows
 
 
 # Kolom tabel, berurutan
-COLUMNS = ["Model", "Pipeline", "B", "Status", "Queries", "EX DAIL-SQL", "EX pipeline", "ΔEX (pp)", "T DAIL-SQL",
-           "T pipeline", "ΔT", "Relative ΔT", "TEP", "Few-shot k", "DAIL k", "Note", "Source pipeline", "Source DAIL"]
+COLUMNS = ["Model", "Comparison", "Pipeline", "B", "Status", "Queries", "EX DAIL-SQL", "EX pipeline", "ΔEX (pp)",
+           "T DAIL-SQL", "T pipeline", "ΔT", "Relative ΔT", "TEP", "Few-shot k", "DAIL k", "Note", "Source pipeline",
+           "Source DAIL"]
 
 
 # Tabel berformat untuk notebook dan Excel
@@ -340,23 +375,26 @@ def tep_table(rows: list) -> pd.DataFrame:
 
 # Daftar sumber yang dipakai, untuk dicek peneliti
 def sources_table(runs: dict) -> pd.DataFrame:
-    rows = [{"Model": m, "Condition": LABELS[c], "Source": str(r.source), "Kind": r.kind,
-             "Queries": len(r.logs) if r.logs is not None else None, "Few-shot k": r.k,
+    rows = [{"Model": m, "Condition": LABELS[c], "Few-shot k": k, "k from": r.k_from, "Source": str(r.source),
+             "Kind": r.kind, "Queries": len(r.logs) if r.logs is not None else None,
              "Full model name": r.meta.get("llm_model"), "Sample ratio": r.meta.get("sample_ratio"),
              "Commit": r.meta.get("commit"), "Problem": r.problem}
-            for m, by_cond in runs.items() for c, r in by_cond.items()]
+            for m, by_key in runs.items() for (c, k), r in sorted(by_key.items())]
     return rt.with_formats(pd.DataFrame(rows), {"Queries": "int", "Few-shot k": "int"}, title="Sources")
 
 
 # Simpan JSON dan Excel
-def save_results(rows: list, runs: dict, notes: list, alpha: float, dail_k: int, out_dir: Path) -> tuple[Path, Path]:
+def save_results(rows: list, runs: dict, notes: list, alpha: float, comparisons: Iterable[tuple],
+                 out_dir: Path) -> tuple[Path, Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path, xlsx_path = out_dir / "hasil_tep.json", out_dir / "hasil_tep.xlsx"
     # JSON: angka mentah, tanpa format
     json_path.write_text(json.dumps({
         "definition": "TEP_c = ((EX_c - EX_B) / EX_B) / ((T_c - T_B) / T_B), B = DAIL-SQL, c = 1-stage or 2-stage",
-        "alpha": alpha, "dail_k": dail_k, "notes": notes, "rows": rows,
+        "alpha": alpha, "comparisons": [{"few_shot_k": kg, "dail_k": kd, "label": comparison_label(kg, kd)}
+                                        for kg, kd in comparisons],
+        "notes": notes, "rows": rows,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     # Excel: sheet TEP + sheet sumber dan catatan
     Sheet._n_tables = 0

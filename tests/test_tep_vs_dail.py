@@ -1,5 +1,5 @@
 """
-Tes lokal TEP dengan DAIL-SQL sebagai B (src/experiments/tep_steps.py, notebooks/eval_tep.ipynb, poin 45).
+Tes lokal TEP dengan DAIL-SQL sebagai B (src/experiments/tep_steps.py, notebooks/eval_tep.ipynb, poin 45, 48).
 Data sintetis: tanpa GPU, torch, atau data Spider.
 
     python tests/test_tep_vs_dail.py      (atau: python -m pytest tests/test_tep_vs_dail.py)
@@ -22,6 +22,10 @@ from src.experiments.metrics_summary import build_metrics_results, save_metrics_
 from src.metrics.tep import compute_tep  # noqa: E402
 
 ALPHA = 3.0
+# Default k untuk Excel tanpa akhiran _K, sama dengan notebook
+DEFAULT_K = {"pipeline": 0, "dail": 9}
+# Tiga perbandingan peneliti: (k GraphRAG, k DAIL)
+COMPARISONS = [(0, 9), (0, 0), (9, 9)]
 
 
 def _entry(i, ex, t_in, t_out, difficulty="easy"):
@@ -35,13 +39,17 @@ def _entry(i, ex, t_in, t_out, difficulty="easy"):
 DAIL = [_entry(1, 1, 2000, 10), _entry(2, 0, 2000, 10, "hard")]
 ONE = [_entry(1, 1, 300, 10), _entry(2, 0, 300, 10, "hard")]
 TWO = [_entry(1, 1, 200, 10), _entry(2, 1, 200, 10, "hard")]
+# Run k lain: DAIL k = 0 lebih murah, GraphRAG k = 9 lebih mahal
+DAIL_K0 = [_entry(1, 1, 900, 10), _entry(2, 0, 900, 10, "hard")]
+ONE_K9 = [_entry(1, 1, 800, 10), _entry(2, 1, 800, 10, "hard")]
+TWO_K9 = [_entry(1, 1, 700, 10), _entry(2, 0, 700, 10, "hard")]
 
 
-def _expected(c_logs):
+def _expected(b_logs, c_logs):
     mean = lambda xs: sum(xs) / len(xs)
-    return compute_tep(mean([e["ex_result"] for e in DAIL]), mean([e["ex_result"] for e in c_logs]),
-                       mean([e["token_input"] + ALPHA * e["token_output"] for e in DAIL]),
-                       mean([e["token_input"] + ALPHA * e["token_output"] for e in c_logs])).tep
+    t = lambda logs: mean([e["token_input"] + ALPHA * e["token_output"] for e in logs])
+    return compute_tep(mean([e["ex_result"] for e in b_logs]), mean([e["ex_result"] for e in c_logs]),
+                       t(b_logs), t(c_logs)).tep
 
 
 def _pipeline_zip(root: Path, size: str, one=ONE, two=TWO, k=0, sample_ratio=1.0) -> Path:
@@ -85,8 +93,9 @@ def _dail_per_query(logs) -> pd.DataFrame:
                           "T_in": e["token_input"], "T_out": e["token_output"]} for e in logs])
 
 
-def _by(rows, model, pipeline):
-    return next(r for r in rows if r["Model"] == model and r["Pipeline"] == pipeline)
+def _by(rows, model, pipeline, comparison=(0, 9)):
+    label = ts.comparison_label(*comparison)
+    return next(r for r in rows if r["Model"] == model and r["Pipeline"] == pipeline and r["Comparison"] == label)
 
 
 def test_tep_from_extracted_zips():
@@ -95,44 +104,76 @@ def test_tep_from_extracted_zips():
         _pipeline_zip(root, "7B")
         _dail_zip(root, "7B")
         runs, notes = ts.find_runs([root])
-        assert notes == [] and set(runs["7B"]) == {"baseline", "graphrag", "dail"}
-        rows = ts.tep_rows(runs, ALPHA, 9)
+        assert notes == [] and set(runs["7B"]) == {("baseline", 0), ("graphrag", 0), ("dail", 9)}
+        rows = ts.tep_rows(runs, ALPHA, [(0, 9)])
     one, two = _by(rows, "7B", "1-stage"), _by(rows, "7B", "2-stage")
     assert one["Status"] == "ok" and two["Status"] == "ok"
-    assert abs(two["TEP"] - _expected(TWO)) < 1e-12 and abs(one["TEP"] - _expected(ONE)) < 1e-12
+    assert abs(two["TEP"] - _expected(DAIL, TWO)) < 1e-12 and abs(one["TEP"] - _expected(DAIL, ONE)) < 1e-12
     # 2-Stage: ((1.0 - 0.5) / 0.5) / ((230 - 2030) / 2030) = -1.1278
     assert abs(two["TEP"] - (1.0 / (-1800 / 2030))) < 1e-12
     assert one["TEP"] == 0   # EX sama dengan DAIL
     assert two["EX DAIL-SQL"] == 0.5 and two["T DAIL-SQL"] == 2030 and two["T pipeline"] == 230
     assert two["ΔEX (pp)"] == 50 and two["ΔT"] == -1800
     assert two["Few-shot k"] == 0 and two["DAIL k"] == 9 and two["Queries"] == 2
+    assert two["Comparison"] == "GraphRAG K0 vs DAIL-SQL K9"
 
 
-def test_excel_fallback_matches_zip():
+def test_three_comparisons_from_excel():
+    """K0 dan K9 per kondisi: k dari akhiran nama file (huruf besar/kecil), tanpa akhiran = default."""
+    with tempfile.TemporaryDirectory() as d:
+        tables = Path(d)
+        _excel(tables / "hasil_skripsi_7B.xlsx", [rt.per_query(ONE, TWO, ALPHA)])            # k = 0 (default)
+        _excel(tables / "hasil_skripsi_7B_K9.xlsx", [rt.per_query(ONE_K9, TWO_K9, ALPHA)])
+        _excel(tables / "hasil_dail_7B.xlsx", [_dail_per_query(DAIL)])                       # k = 9 (default)
+        _excel(tables / "hasil_dail_7B_k0.xlsx", [_dail_per_query(DAIL_K0)])
+        runs, notes = ts.find_runs([tables], DEFAULT_K)
+        assert notes == [], notes
+        assert set(runs["7B"]) == {("baseline", 0), ("graphrag", 0), ("baseline", 9), ("graphrag", 9),
+                                   ("dail", 0), ("dail", 9)}
+        assert runs["7B"][("graphrag", 9)].k_from == "nama file" and runs["7B"][("dail", 9)].k_from == "default"
+        rows = ts.tep_rows(runs, ALPHA, COMPARISONS, ["7B"])
+        assert ts.unused_runs(runs, COMPARISONS) == []
+        # Tanpa perbandingan K0 vs K0, DAIL k = 0 tidak terpakai
+        assert any("DAIL-SQL k = 0" in n for n in ts.unused_runs(runs, [(0, 9), (9, 9)]))
+    assert len(rows) == 6 and all(r["Status"] == "ok" for r in rows)
+    pairs = {(0, 9): (DAIL, ONE, TWO), (0, 0): (DAIL_K0, ONE, TWO), (9, 9): (DAIL, ONE_K9, TWO_K9)}
+    for comp, (b, one, two) in pairs.items():
+        assert abs(_by(rows, "7B", "1-stage", comp)["TEP"] - _expected(b, one)) < 1e-12, comp
+        assert abs(_by(rows, "7B", "2-stage", comp)["TEP"] - _expected(b, two)) < 1e-12, comp
+        assert _by(rows, "7B", "2-stage", comp)["Few-shot k"] == comp[0]
+        assert _by(rows, "7B", "2-stage", comp)["DAIL k"] == comp[1]
+    # K0 vs K0: pipeline lebih murah DAIL k = 0 juga, T DAIL = 930
+    assert _by(rows, "7B", "1-stage", (0, 0))["T DAIL-SQL"] == 930
+    assert "akhiran nama file" in _by(rows, "7B", "2-stage", (9, 9))["Note"]
+    assert "EXCEL_DEFAULT_K" in _by(rows, "7B", "2-stage", (0, 9))["Note"]
+
+
+def test_excel_fallback_and_zip_priority():
     with tempfile.TemporaryDirectory() as d:
         tables = Path(d) / "tables"
         filler = pd.DataFrame([{"Metric": "x", "Value": 1}])
         _excel(tables / "hasil_skripsi_7B.xlsx", [filler, rt.per_query(ONE, TWO, ALPHA)])
         _excel(tables / "hasil_dail_7B.xlsx", [_dail_per_query(DAIL)])
-        _excel(tables / "hasil_dail_7B_k5.xlsx", [_dail_per_query(DAIL)])   # ablation DAIL k = 5
-        # Tanpa dail_k kedua file DAIL bertabrakan, jadi DAIL dilewati
+        # Tanpa default, k Excel tanpa akhiran tidak diketahui: dilewati dengan catatan
         runs, notes = ts.find_runs([tables])
-        assert any("ditemukan 2 hasil" in n for n in notes) and "dail" not in runs["7B"], notes
-        # Dengan dail_k = 9, file ablation diabaikan dan file k = 9 dipakai
-        runs, notes = ts.find_runs([tables], dail_k=9)
-        assert any("ablation" in n for n in notes) and runs["7B"]["dail"].source.name == "hasil_dail_7B.xlsx"
+        assert runs == {} and any("k few-shot tidak diketahui" in n for n in notes), notes
+        runs, notes = ts.find_runs([tables], DEFAULT_K)
         assert all(r.kind == "excel" for r in runs["7B"].values())
-        rows = ts.tep_rows(runs, ALPHA, 9)
-        two = _by(rows, "7B", "2-stage")
-        assert two["Status"] == "ok" and abs(two["TEP"] - _expected(TWO)) < 1e-12
+        two = _by(ts.tep_rows(runs, ALPHA, [(0, 9)]), "7B", "2-stage")
+        assert two["Status"] == "ok" and abs(two["TEP"] - _expected(DAIL, TWO)) < 1e-12
         assert "dari Excel" in two["Note"]
 
-        # Zip diutamakan daripada Excel untuk model dan kondisi yang sama
+        # Zip diutamakan daripada Excel untuk model, kondisi, dan k yang sama
         models = Path(d) / "models"
         _pipeline_zip(models, "7B")
-        runs, notes = ts.find_runs([models, tables], dail_k=9)
-        assert runs["7B"]["graphrag"].kind == "json" and runs["7B"]["dail"].kind == "excel"
+        runs, notes = ts.find_runs([models, tables], DEFAULT_K)
+        assert runs["7B"][("graphrag", 0)].kind == "json" and runs["7B"][("dail", 9)].kind == "excel"
         assert any("memakai" in n for n in notes)
+
+        # Dua Excel dengan k yang sama (tanpa akhiran = 9, dan _K9) bertabrakan: DAIL k = 9 dilewati
+        _excel(tables / "hasil_dail_7B_K9.xlsx", [_dail_per_query(DAIL)])
+        runs, notes = ts.find_runs([tables], DEFAULT_K)
+        assert any("ditemukan 2 hasil" in n for n in notes) and ("dail", 9) not in runs["7B"], notes
 
 
 def test_skips_with_reason():
@@ -140,17 +181,19 @@ def test_skips_with_reason():
         root = Path(d)
         _pipeline_zip(root, "7B")                          # DAIL 7B belum ada
         _pipeline_zip(root, "3B")
-        _dail_zip(root, "3B", k=5)                         # DAIL ablation, bukan baseline skripsi
+        _dail_zip(root, "3B", k=5)                         # DAIL k = 5 tidak diminta
         _pipeline_zip(root, "14B", one=ONE[:1], two=TWO[:1])
         _dail_zip(root, "14B")                             # pertanyaan berbeda (2 vs 1)
         runs, _ = ts.find_runs([root, root / "tidak-ada"])
-        rows = ts.tep_rows(runs, ALPHA, 9, ["3B", "7B", "14B", "32B"])
-    assert [r["Model"] for r in rows] == ["3B", "3B", "7B", "7B", "14B", "14B", "32B", "32B"]
-    assert all(r["Status"] == "skipped" and r["TEP"] is None for r in rows if "TEP" in r)
-    assert "ablation" in _by(rows, "3B", "2-stage")["Note"]
-    assert "DAIL-SQL belum ada" in _by(rows, "7B", "1-stage")["Note"]
+        rows = ts.tep_rows(runs, ALPHA, [(0, 9), (9, 9)], ["3B", "7B", "14B", "32B"])
+    assert len(rows) == 4 * 2 * 2
+    assert all(r["Status"] == "skipped" and r.get("TEP") is None for r in rows)
+    assert "DAIL-SQL k = 9 belum ada" in _by(rows, "3B", "2-stage")["Note"]
+    assert "DAIL-SQL k = 9 belum ada" in _by(rows, "7B", "1-stage")["Note"]
     assert "pertanyaan berbeda" in _by(rows, "14B", "2-stage")["Note"]
-    assert "hasil_32B.zip" in _by(rows, "32B", "1-stage")["Note"]
+    assert "1-stage k = 9 belum ada" in _by(rows, "14B", "1-stage", (9, 9))["Note"]
+    assert "FEW_SHOT_K = 0" in _by(rows, "32B", "1-stage")["Note"]
+    assert any("k = 5" in n for n in ts.unused_runs(runs, [(0, 9)]))
 
 
 def test_undefined_tep_and_trial_warning():
@@ -159,7 +202,7 @@ def test_undefined_tep_and_trial_warning():
         # 1-Stage dengan T sama persis dengan DAIL: ΔT = 0, TEP tidak terdefinisi (bukan crash)
         _pipeline_zip(root, "7B", one=DAIL, sample_ratio=0.05)
         _dail_zip(root, "7B")
-        rows = ts.tep_rows(ts.find_runs([root])[0], ALPHA, 9)
+        rows = ts.tep_rows(ts.find_runs([root])[0], ALPHA, [(0, 9)])
     one, two = _by(rows, "7B", "1-stage"), _by(rows, "7B", "2-stage")
     assert one["Status"] == "not_available" and "delta_t" in one["Note"]
     assert two["Status"] == "ok" and "run percobaan" in two["Note"]
@@ -171,17 +214,19 @@ def test_save_results():
         _pipeline_zip(root, "7B")
         _dail_zip(root, "7B")
         runs, notes = ts.find_runs([root])
-        rows = ts.tep_rows(runs, ALPHA, 9, ["3B", "7B"])
-        json_path, xlsx_path = ts.save_results(rows, runs, notes, ALPHA, 9, root / "out")
+        rows = ts.tep_rows(runs, ALPHA, COMPARISONS, ["3B", "7B"])
+        json_path, xlsx_path = ts.save_results(rows, runs, notes, ALPHA, COMPARISONS, root / "out")
         data = json.loads(json_path.read_text(encoding="utf-8"))
-        assert data["alpha"] == ALPHA and len(data["rows"]) == 4
+        assert data["alpha"] == ALPHA and len(data["rows"]) == 2 * 3 * 2
+        assert [c["label"] for c in data["comparisons"]] == [ts.comparison_label(*c) for c in COMPARISONS]
         wb = load_workbook(xlsx_path)
         assert wb.sheetnames == ["TEP", "Sources"]
         header = [c.value for c in wb["TEP"][1]]
         assert header == ts.COLUMNS
         wb.close()
     assert ts.model_size("Qwen/Qwen2.5-Coder-14B-Instruct") == "14B"
-    assert ts.model_size("hasil_dail_7B_k5") == "7B" and ts.model_size("hasil_skripsi") is None
+    assert ts.model_size("hasil_dail_7B_k5") == "7B" and ts.model_size("hasil_skripsi_7B_K9") == "7B"
+    assert ts.model_size("hasil_skripsi") is None
 
 
 if __name__ == "__main__":

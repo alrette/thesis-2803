@@ -963,6 +963,22 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 
 **Efek ke metrik:** EX/ESM/CM/SLA tidak berubah. T_out hanya berubah untuk pertanyaan yang modelnya tidak berhenti sendiri; T_out kini hanya SQL + ```` ``` ````. Run 7B dan 14B yang sudah selesai dijalankan tanpa stop string; kalau modelnya sudah berhenti sendiri setelah ```` ``` ````, T_out-nya sama dengan yang akan dihasilkan sekarang.
 
+## 48. TEP untuk beberapa pasangan k few-shot: K0 vs K9, K0 vs K0, K9 vs K9 (2026-11-25)
+
+**Keputusan peneliti:** selain run utama (GraphRAG k = 0 dari ablation, DAIL-SQL k = 9), GraphRAG juga dijalankan dengan k = 9 untuk ketiga model (`hasil_skripsi_<MODEL>_K9.xlsx`), dan DAIL-SQL akan dijalankan dengan k = 0. TEP dihitung untuk tiga pasangan (k GraphRAG, k DAIL-SQL): **(0, 9)**, **(0, 0)**, **(9, 9)**. (0, 9) adalah best config vs best config (poin 43, 45); (0, 0) dan (9, 9) menyamakan jumlah contoh few-shot, sehingga ΔT tidak lagi didominasi token contoh DAIL.
+
+**Masalah sebelumnya:** `tep_steps.find_runs()` hanya menyimpan satu run per model x kondisi. Dua Excel 1-Stage/2-Stage untuk model yang sama (`hasil_skripsi_7B.xlsx` dan `_K9`) dianggap duplikat, jadi baris 7B dan 14B dilewati; untuk 3B, file `_K9` dipakai sebagai satu-satunya hasil tanpa diketahui k-nya; DAIL k selain 9 selalu dibuang sebagai ablation.
+
+**Perubahan (`src/experiments/tep_steps.py`, kode custom; rumus TEP tidak berubah):**
+- Satu run = model x kondisi x k. k dari metadata zip (`few_shot_k`, `dail.dail_k_shot`); untuk Excel dari akhiran nama file `_K<k>` (huruf besar/kecil sama saja). Excel tanpa akhiran memakai `EXCEL_DEFAULT_K` dari notebook (GraphRAG 0, DAIL `cfg.dail_k_shot` = 9), sesuai file yang sudah ada. k yang tidak diketahui = run dilewati dengan catatan. Dua sumber sejenis untuk model x kondisi x k yang sama tetap dilewati.
+- Perbandingan ditulis peneliti di `COMPARISONS` (sel konfigurasi `eval_tep.ipynb`), bukan dipilih kode. `tep_rows(runs, alpha, comparisons, models)` menghasilkan satu baris per model x perbandingan x pipeline (3 x 3 x 2 = 18), dengan kolom baru `Comparison` (mis. `GraphRAG K0 vs DAIL-SQL K9`). Pasangan yang belum punya hasil = baris `skipped` dengan alasan dan cara melengkapinya.
+- `unused_runs()`: run yang ditemukan tapi tidak dipakai perbandingan mana pun dicatat (menggantikan catatan "DAIL ablation tidak dipakai"). Sheet `Sources` punya kolom `k from` (`metadata`, `nama file`, `default`). `hasil_tep.json` menyimpan daftar perbandingan, bukan satu `dail_k`.
+- Zip dengan k berbeda isinya bernama sama (`raw_logs/dail_log.json`, folder model), jadi harus diekstrak ke folder terpisah; ditulis di notebook dan `RESEARCHER_TODO.md`.
+
+**Hasil di file yang ada (2026-11-25, dari Excel):** 12 dari 18 baris terisi. Yang kurang: GraphRAG 3B k = 0 (`hasil_skripsi_3B.xlsx`) dan DAIL-SQL k = 0 ketiga model. Angka K0 vs K9 sama dengan perhitungan sebelumnya (7B: 1-Stage 0.0884, 2-Stage 0.1627).
+
+**Tes:** `python tests/test_tep_vs_dail.py`: tiga perbandingan dari Excel dengan akhiran `_K9`/`_k0` dan tanpa akhiran (TEP tiap pasangan dicek terhadap `compute_tep()`), k tidak diketahui tanpa default, dua Excel dengan k sama, prioritas zip, pasangan yang hasilnya belum ada, run tidak terpakai.
+
 ### F. Baseline DAIL-SQL belum diimplementasikan
 
 🟡 **Sebagian.** Pembanding TEP diputuskan 2026-11-20 (poin 45): B = DAIL-SQL untuk 1-Stage dan 2-Stage, di `eval_tep.ipynb`. Yang masih terbuka: Dimensi 2-6 dengan DAIL dan satu Excel gabungan tiga kondisi. Status 2026-11-11 (poin 43): DAIL-SQL sudah bisa dijalankan dan dievaluasi lewat `notebooks/eval_dail.ipynb`; penggabungan tiga kondisi (Excel, dimensi, `combine_models.py`) belum. Teks asli di bawah dipertahankan sebagai catatan historis.
