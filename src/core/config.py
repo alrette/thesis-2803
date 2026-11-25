@@ -213,7 +213,7 @@ class PipelineConfig:
     # question on Kaggle T4). DAIL's own cleaner (process_duplication) drops everything after the
     # first "/*", so stopping there gives the same SQL, only without the wasted tokens
     # (IMPLEMENTATION_DECISIONS.md point 46). Empty list = stop only at EOS / max_new_tokens.
-    dail_stop_strings: list[str] = field(default_factory=lambda: [";", "/*"])
+    dail_stop_strings: list[str] = field(default_factory=lambda: [";", "/*", "```"])
 
     # --- Mode ---
     use_full_schema_bypass: bool = False

@@ -196,6 +196,7 @@ def dail_postprocess(dail: DailBaseline, text: str) -> str:
     sql = dail.dail["process_duplication"](sql)
     if sql.startswith("SELECT"):
         return sql
+    sql = sql.split("```")[0]
     if sql.startswith(" "):
         return "SELECT" + sql
     return "SELECT " + sql
