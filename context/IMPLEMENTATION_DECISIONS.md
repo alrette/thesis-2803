@@ -975,7 +975,7 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 - `unused_runs()`: run yang ditemukan tapi tidak dipakai perbandingan mana pun dicatat (menggantikan catatan "DAIL ablation tidak dipakai"). Sheet `Sources` punya kolom `k from` (`metadata`, `nama file`, `default`). `hasil_tep.json` menyimpan daftar perbandingan, bukan satu `dail_k`.
 - Zip dengan k berbeda isinya bernama sama (`raw_logs/dail_log.json`, folder model), jadi harus diekstrak ke folder terpisah; ditulis di notebook dan `RESEARCHER_TODO.md`.
 
-**Hasil di file yang ada (2026-11-25, dari Excel):** 12 dari 18 baris terisi. Yang kurang: GraphRAG 3B k = 0 (`hasil_skripsi_3B.xlsx`) dan DAIL-SQL k = 0 ketiga model. Angka K0 vs K9 sama dengan perhitungan sebelumnya (7B: 1-Stage 0.0884, 2-Stage 0.1627).
+**Hasil di file yang ada (2026-11-25, dari Excel):** 10 dari 18 baris terisi. Yang kurang (8 baris): GraphRAG 3B k = 0 (`hasil_skripsi_3B.xlsx`, 4 baris 3B: K0 vs K9 dan K0 vs K0) dan DAIL-SQL k = 0 untuk 7B dan 14B (4 baris K0 vs K0). Angka K0 vs K9 sama dengan perhitungan sebelumnya (7B: 1-Stage 0.0884, 2-Stage 0.1627).
 
 **Tes:** `python tests/test_tep_vs_dail.py`: tiga perbandingan dari Excel dengan akhiran `_K9`/`_k0` dan tanpa akhiran (TEP tiap pasangan dicek terhadap `compute_tep()`), k tidak diketahui tanpa default, dua Excel dengan k sama, prioritas zip, pasangan yang hasilnya belum ada, run tidak terpakai.
 
