@@ -801,6 +801,8 @@ Dua argumen terakhir HANYA untuk silang-ESM langkah 6. Kalau tidak dioper, `esm_
 
 ### C. `src/core/config.py` mengikat SELURUH lapisan dimensi ke `torch` demi satu default dtype
 
+🟡 **Sebagian (2026-11-25, poin 49):** `import torch` di `config.py` sekarang opsional (varian opsi 3 tanpa menyentuh jalur GPU), jadi `PipelineConfig` bisa di-import tanpa torch. Belum dicek: apakah Dimensi 1 di `run_all_dimensions.py` sekarang jalan lokal (pesan skip torch di file itu belum diubah).
+
 **Ditemukan (2026-09-17),** saat mengisi `run_all_dimensions.py` (poin 24).
 
 `src/core/config.py` baris 5 `import torch`, dipakai HANYA untuk satu default field: `bnb_compute_dtype: torch.dtype = torch.float16`. Tapi `src/dimensions/dim1_efficiency.py` `import PipelineConfig` dari situ (untuk μ = `token_output_weight`), jadi **Dimensi 1 tidak bisa jalan di environment tanpa torch** — padahal `requirements.txt` menyatakan lapisan `src/metrics/` + `src/dimensions/` justru dirancang jalan LOKAL, bukan di Kaggle. Lima dimensi lain tidak terpengaruh (tidak ada yang butuh `cfg`).
@@ -978,6 +980,14 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 **Hasil di file yang ada (2026-11-25, dari Excel):** 10 dari 18 baris terisi. Yang kurang (8 baris): GraphRAG 3B k = 0 (`hasil_skripsi_3B.xlsx`, 4 baris 3B: K0 vs K9 dan K0 vs K0) dan DAIL-SQL k = 0 untuk 7B dan 14B (4 baris K0 vs K0). Angka K0 vs K9 sama dengan perhitungan sebelumnya (7B: 1-Stage 0.0884, 2-Stage 0.1627).
 
 **Tes:** `python tests/test_tep_vs_dail.py`: tiga perbandingan dari Excel dengan akhiran `_K9`/`_k0` dan tanpa akhiran (TEP tiap pasangan dicek terhadap `compute_tep()`), k tidak diketahui tanpa default, dua Excel dengan k sama, prioritas zip, pasangan yang hasilnya belum ada, run tidak terpakai.
+
+## 49. `config.py` bisa di-import tanpa torch (2026-11-25)
+
+**Masalah:** `eval_tep.ipynb` di laptop peneliti gagal di `from src.core.config import PipelineConfig` (`ModuleNotFoundError: torch`), padahal notebook itu hanya membaca α (`token_output_weight`), k DAIL (`dail_k_shot`), dan daftar model dari config lalu menghitung dari Excel. torch di `config.py` hanya dipakai untuk satu default: `bnb_compute_dtype = torch.float16` (open item C).
+
+**Perubahan:** `import torch` dibungkus `try/except ImportError` (`torch = None`), dan `bnb_compute_dtype` = `torch.float16` kalau torch ada, `None` kalau tidak. Dengan torch terpasang (Kaggle, run GPU) nilainya tetap `torch.float16`, jadi `generation.py` dan semua run GPU tidak berubah. Tanpa torch, nilai lain di config tetap terbaca; yang tidak bisa hanya memuat LLM, yang memang butuh torch. Nilai config tidak di-hardcode ulang di notebook (alasan yang sama dengan poin 24(d)).
+
+**Tes:** sel `eval_tep.ipynb` dijalankan dengan torch diblokir (`sys.modules["torch"] = None`): 10 dari 18 baris `ok`, sama dengan run dengan torch. Dengan torch, `PipelineConfig().bnb_compute_dtype == torch.float16`. Tes lokal (`test_tep_vs_dail`, `test_metrics_summary`, `test_table_threshold`, `test_trial_steps`, `test_token_reduction`, `test_sampling`, `test_trial_tracing`, `test_dail_k_shot`) lulus.
 
 ### F. Baseline DAIL-SQL belum diimplementasikan
 

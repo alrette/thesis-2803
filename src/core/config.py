@@ -2,7 +2,12 @@
 Configuration for GraphRAG Text-to-SQL Pipeline.
 """
 
-import torch
+# torch hanya dibutuhkan untuk memuat LLM (bnb_compute_dtype). Notebook tanpa GPU (eval_tep.ipynb,
+# metrik dari hasil tersimpan) cukup membaca nilai config, jadi config tetap bisa di-import tanpa torch.
+try:
+    import torch
+except ImportError:
+    torch = None
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,7 +55,8 @@ class PipelineConfig:
     load_in_4bit: bool = True
     bnb_double_quant: bool = True
     bnb_quant_type: str = "nf4"
-    bnb_compute_dtype: torch.dtype = torch.float16
+    # None kalau torch tidak terpasang; generation.py (yang butuh nilai ini) memang butuh torch
+    bnb_compute_dtype: "torch.dtype" = torch.float16 if torch is not None else None
 
     # --- Schema Linking ---
     # GraphRAG: the two thresholds below are the ONLY retrieval choices. Every other

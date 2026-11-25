@@ -358,9 +358,10 @@ def tep_rows(runs: dict, alpha: float, comparisons: Iterable[tuple], models: Ite
     return rows
 
 
-# Kolom tabel, berurutan
+# Kolom tabel, berurutan. "Note" (alasan skipped, peringatan sumber) sengaja tidak ditampilkan
+# (keputusan peneliti 2026-11-25); isinya tetap ada di hasil_tep.json (field "rows")
 COLUMNS = ["Model", "Comparison", "Pipeline", "B", "Status", "Queries", "EX DAIL-SQL", "EX pipeline", "ΔEX (pp)",
-           "T DAIL-SQL", "T pipeline", "ΔT", "Relative ΔT", "TEP", "Few-shot k", "DAIL k", "Note", "Source pipeline",
+           "T DAIL-SQL", "T pipeline", "ΔT", "Relative ΔT", "TEP", "Few-shot k", "DAIL k", "Source pipeline",
            "Source DAIL"]
 
 
