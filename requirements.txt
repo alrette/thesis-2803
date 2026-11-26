@@ -1,26 +1,19 @@
-# Requirements untuk evaluation pipeline (src/metrics/, src/dimensions/) — dijalankan
-# secara lokal, bukan di Kaggle. Pipeline utama (src/core, src/retrieval, src/generation,
-# src/experiments) jalan di Kaggle Notebook dengan torch/sentence-transformers/
-# bitsandbytes/networkx/tqdm yang sudah pre-installed di sana — tidak dicantumkan
-# di sini karena bukan environment yang sama.
+# Core pipeline (preinstalled on Kaggle; versions there as of Oct 2026 in comments)
+torch>=2.4                     # Kaggle: 2.11.0+cu130
+transformers>=4.40.0           # Kaggle: 5.20.2
+sentence-transformers>=3.0     # Kaggle: 5.7.0
+networkx>=3.0                  # Kaggle: 3.7
+tqdm>=4.66                     # Kaggle: 4.67.3
+nltk>=3.8                      # Kaggle: 3.9.1
+scipy>=1.11                    # Kaggle: 1.16.3
+bitsandbytes>=0.46.1           # NOT preinstalled on Kaggle, but required for 4-bit quantization
 
-# Tokenizer untuk Qwen2.5-Coder-7B-Instruct (WAJIB, jangan ganti tokenizer lain)
-transformers>=4.40.0
-
-# SQL parsing (opsional, kalau tidak pakai parser dari official SPIDER eval script)
-sqlglot>=23.0.0
-
-# Data handling
+# Evaluation and export
 pandas>=2.0.0
 numpy>=1.24.0
-# Export hasil ke Excel (src/experiments/export_excel.py); sudah ada di Kaggle
 openpyxl>=3.1.0
+sqlglot>=23.0.0
+spacy>=3.7                     # then: python -m spacy download en_core_web_sm
 
-# De-semanticization (src/skeleton/masking.py), lokal saja — hasilnya di-commit ke
-# data/skeletons/, jadi Kaggle tidak butuh spaCy. Model: python -m spacy download en_core_web_sm
-spacy>=3.7
-
-# SQLite eksekusi sudah built-in Python (sqlite3), tidak perlu install
-
-# Untuk testing
+# Testing
 pytest>=7.0.0
