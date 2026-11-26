@@ -981,6 +981,8 @@ Untuk sekarang `run_all_dimensions.py` menerima angkanya manual (`--ex-per-k` / 
 
 **Tes:** `python tests/test_tep_vs_dail.py`: tiga perbandingan dari Excel dengan akhiran `_K9`/`_k0` dan tanpa akhiran (TEP tiap pasangan dicek terhadap `compute_tep()`), k tidak diketahui tanpa default, dua Excel dengan k sama, prioritas zip, pasangan yang hasilnya belum ada, run tidak terpakai.
 
+**Pembaruan 2026-11-26 (struktur folder hasil):** Excel hasil dipindah ke `outputs/tables/result_ourmethod/k0|k9/` (`hasil_skripsi_<MODEL>_k<k>.xlsx`) dan `outputs/tables/result_dail/k0|k9/` (`hasil_dail_<MODEL>_k<k>.xlsx`). Kode pencarian tidak berubah (sudah mencari di subfolder, k dari akhiran nama file); `INPUT_DIRS` di notebook dan `DEFAULT_INPUT_DIRS` di `tep_steps.py` sekarang menunjuk langsung ke kedua folder itu (plus `outputs/models/`), supaya Excel lain di `outputs/tables/` tidak ikut terbaca sebagai duplikat. Dengan file 2026-11-26 ke-18 baris terisi.
+
 ## 49. `config.py` bisa di-import tanpa torch (2026-11-25)
 
 **Masalah:** `eval_tep.ipynb` di laptop peneliti gagal di `from src.core.config import PipelineConfig` (`ModuleNotFoundError: torch`), padahal notebook itu hanya membaca α (`token_output_weight`), k DAIL (`dail_k_shot`), dan daftar model dari config lalu menghitung dari Excel. torch di `config.py` hanya dipakai untuk satu default: `bnb_compute_dtype = torch.float16` (open item C).

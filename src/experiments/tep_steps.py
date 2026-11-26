@@ -55,8 +55,10 @@ LABELS = {"baseline": "1-stage", "graphrag": "2-stage", "dail": "DAIL-SQL"}
 DAIL_METRICS = "dail_metrics_results.json"
 # Nama file raw_logs per kondisi
 LOG_FILES = {"baseline": "baseline_log.json", "graphrag": "graphrag_log.json", "dail": "dail_log.json"}
-# Folder yang dicari secara default: zip diekstrak ke outputs/models/, Excel unduhan di outputs/tables/
-DEFAULT_INPUT_DIRS = (Path("outputs/models"), Path("outputs/tables"))
+# Folder yang dicari secara default (termasuk subfolder): zip diekstrak ke outputs/models/, Excel GraphRAG di
+# outputs/tables/result_ourmethod/k<k>/, Excel DAIL-SQL di outputs/tables/result_dail/k<k>/
+DEFAULT_INPUT_DIRS = (Path("outputs/models"), Path("outputs/tables/result_ourmethod"),
+                      Path("outputs/tables/result_dail"))
 # Kolom Excel Per Query: {kondisi: akhiran nama kolom}; DAIL tanpa akhiran
 EXCEL_SUFFIX = {"baseline": " 1-stage", "graphrag": " 2-stage", "dail": ""}
 # Label tingkat kesulitan Excel -> kunci raw_logs

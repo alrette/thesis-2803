@@ -117,11 +117,10 @@ lokal) — jalankan di Kaggle.
   - [ ] Jalankan `notebooks/eval_dail.ipynb` per model, dengan `MODEL` dan `SAMPLE_RATIO` yang sama dengan `eval_pipeline.ipynb` (uji dulu `SAMPLE_RATIO = 0.05`).
   - [x] ~~Putuskan pasangan TEP~~ — DIPUTUSKAN 2026-11-20 (poin 45): B = DAIL-SQL, untuk 1-Stage dan 2-Stage, per model.
   - [ ] **TEP vs DAIL-SQL** (`notebooks/eval_tep.ipynb`, tanpa GPU), tiga perbandingan k (poin 48, `COMPARISONS`):
-    GraphRAG K0 vs DAIL K9, GraphRAG K0 vs DAIL K0, GraphRAG K9 vs DAIL K9. Taruh Excel di `outputs/tables/` dengan k di akhiran
-    nama file (`hasil_skripsi_<MODEL>_K9.xlsx`, `hasil_dail_<MODEL>_K0.xlsx`; tanpa akhiran = GraphRAG k 0 / DAIL k 9), atau
-    ekstrak zip tiap k ke folder sendiri di `outputs/models/`. Syarat: `MODEL`, `SAMPLE_RATIO`, dan seed sama antara `eval_pipeline`
-    dan `eval_dail`. Status 2026-11-25: GraphRAG K0 (7B, 14B), GraphRAG K9 (3B, 7B, 14B), DAIL K9 (3B, 7B, 14B) sudah ada;
-    yang kurang GraphRAG 3B K0 dan DAIL K0 ketiga model.
+    GraphRAG K0 vs DAIL K9, GraphRAG K0 vs DAIL K0, GraphRAG K9 vs DAIL K9. Excel di `outputs/tables/result_ourmethod/k<k>/` dan
+    `outputs/tables/result_dail/k<k>/`, k di akhiran nama file (`hasil_skripsi_<MODEL>_k0.xlsx`, `hasil_dail_<MODEL>_k9.xlsx`).
+    Syarat: `MODEL`, `SAMPLE_RATIO`, dan seed sama antara `eval_pipeline` dan `eval_dail`. Status 2026-11-26: semua file
+    ketiga model x k0/k9 sudah ada; 18 dari 18 baris TEP terisi.
   - [ ] Tulis di metodologi: pada GraphRAG K0 vs DAIL K9, ΔT juga memuat token contoh few-shot dan schema penuh DAIL, bukan hanya
     selisih retrieval; K0 vs K0 dan K9 vs K9 menyamakan jumlah contoh. Tabel interpretasi TEP di guide mengasumsikan ΔT < 0.
   - [ ] Putuskan (dengan pembimbing) cara menggabungkan tiga kondisi untuk Dimensi 2-6 dan satu Excel (pilihan A, open item F).
