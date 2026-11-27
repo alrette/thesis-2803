@@ -1,0 +1,639 @@
+[
+  {
+    "db_id": "student_transcripts_tracking",
+    "table_names_original": [
+      "Departments",
+      "Degree_Programs",
+      "Courses",
+      "Sections",
+      "Semesters",
+      "Students",
+      "Student_Enrolment",
+      "Student_Enrolment_Courses",
+      "Transcripts",
+      "Transcript_Contents"
+    ],
+    "table_names": [
+      "departments",
+      "degree programs",
+      "courses",
+      "sections",
+      "semesters",
+      "students",
+      "student enrolment",
+      "student enrolment courses",
+      "transcripts",
+      "transcript contents"
+    ],
+    "column_names_original": [
+      [
+        -1,
+        "*"
+      ],
+      [
+        0,
+        "department_id"
+      ],
+      [
+        0,
+        "department_name"
+      ],
+      [
+        0,
+        "department_description"
+      ],
+      [
+        1,
+        "degree_program_id"
+      ],
+      [
+        1,
+        "department_id"
+      ],
+      [
+        1,
+        "degree_summary_name"
+      ],
+      [
+        1,
+        "degree_summary_description"
+      ],
+      [
+        2,
+        "course_id"
+      ],
+      [
+        2,
+        "course_name"
+      ],
+      [
+        2,
+        "course_description"
+      ],
+      [
+        3,
+        "section_id"
+      ],
+      [
+        3,
+        "course_id"
+      ],
+      [
+        3,
+        "section_name"
+      ],
+      [
+        3,
+        "section_description"
+      ],
+      [
+        4,
+        "semester_id"
+      ],
+      [
+        4,
+        "semester_name"
+      ],
+      [
+        4,
+        "semester_description"
+      ],
+      [
+        5,
+        "student_id"
+      ],
+      [
+        5,
+        "first_name"
+      ],
+      [
+        5,
+        "last_name"
+      ],
+      [
+        5,
+        "email_address"
+      ],
+      [
+        5,
+        "date_first_registered"
+      ],
+      [
+        6,
+        "student_enrolment_id"
+      ],
+      [
+        6,
+        "degree_program_id"
+      ],
+      [
+        6,
+        "semester_id"
+      ],
+      [
+        6,
+        "student_id"
+      ],
+      [
+        7,
+        "student_course_id"
+      ],
+      [
+        7,
+        "course_id"
+      ],
+      [
+        7,
+        "student_enrolment_id"
+      ],
+      [
+        8,
+        "transcript_id"
+      ],
+      [
+        8,
+        "transcript_date"
+      ],
+      [
+        8,
+        "other_details"
+      ],
+      [
+        9,
+        "student_course_id"
+      ],
+      [
+        9,
+        "transcript_id"
+      ]
+    ],
+    "column_names": [
+      [
+        -1,
+        "*"
+      ],
+      [
+        0,
+        "department id"
+      ],
+      [
+        0,
+        "department name"
+      ],
+      [
+        0,
+        "department description"
+      ],
+      [
+        1,
+        "degree program id"
+      ],
+      [
+        1,
+        "department id"
+      ],
+      [
+        1,
+        "degree summary name"
+      ],
+      [
+        1,
+        "degree summary description"
+      ],
+      [
+        2,
+        "course id"
+      ],
+      [
+        2,
+        "course name"
+      ],
+      [
+        2,
+        "course description"
+      ],
+      [
+        3,
+        "section id"
+      ],
+      [
+        3,
+        "course id"
+      ],
+      [
+        3,
+        "section name"
+      ],
+      [
+        3,
+        "section description"
+      ],
+      [
+        4,
+        "semester id"
+      ],
+      [
+        4,
+        "semester name"
+      ],
+      [
+        4,
+        "semester description"
+      ],
+      [
+        5,
+        "student id"
+      ],
+      [
+        5,
+        "first name"
+      ],
+      [
+        5,
+        "last name"
+      ],
+      [
+        5,
+        "email address"
+      ],
+      [
+        5,
+        "date first registered"
+      ],
+      [
+        6,
+        "student enrolment id"
+      ],
+      [
+        6,
+        "degree program id"
+      ],
+      [
+        6,
+        "semester id"
+      ],
+      [
+        6,
+        "student id"
+      ],
+      [
+        7,
+        "student course id"
+      ],
+      [
+        7,
+        "course id"
+      ],
+      [
+        7,
+        "student enrolment id"
+      ],
+      [
+        8,
+        "transcript id"
+      ],
+      [
+        8,
+        "transcript date"
+      ],
+      [
+        8,
+        "other details"
+      ],
+      [
+        9,
+        "student course id"
+      ],
+      [
+        9,
+        "transcript id"
+      ]
+    ],
+    "column_types": [
+      "text",
+      "number",
+      "text",
+      "text",
+      "number",
+      "number",
+      "text",
+      "text",
+      "number",
+      "text",
+      "text",
+      "number",
+      "number",
+      "text",
+      "text",
+      "number",
+      "text",
+      "text",
+      "number",
+      "text",
+      "text",
+      "text",
+      "time",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "time",
+      "text",
+      "number",
+      "number"
+    ],
+    "primary_keys": [
+      1,
+      4,
+      8,
+      11,
+      15,
+      18,
+      23,
+      27,
+      30,
+      33
+    ],
+    "foreign_keys": [
+      [
+        5,
+        1
+      ],
+      [
+        12,
+        8
+      ],
+      [
+        24,
+        4
+      ],
+      [
+        25,
+        15
+      ],
+      [
+        26,
+        18
+      ],
+      [
+        28,
+        8
+      ],
+      [
+        29,
+        23
+      ],
+      [
+        33,
+        27
+      ],
+      [
+        34,
+        30
+      ]
+    ]
+  },
+  {
+    "db_id": "concert_singer",
+    "table_names_original": [
+      "stadium",
+      "singer",
+      "concert",
+      "singer_in_concert"
+    ],
+    "table_names": [
+      "stadium",
+      "singer",
+      "concert",
+      "singer in concert"
+    ],
+    "column_names_original": [
+      [
+        -1,
+        "*"
+      ],
+      [
+        0,
+        "Stadium_ID"
+      ],
+      [
+        0,
+        "Location"
+      ],
+      [
+        0,
+        "Name"
+      ],
+      [
+        0,
+        "Capacity"
+      ],
+      [
+        0,
+        "Highest"
+      ],
+      [
+        0,
+        "Lowest"
+      ],
+      [
+        0,
+        "Average"
+      ],
+      [
+        1,
+        "Singer_ID"
+      ],
+      [
+        1,
+        "Name"
+      ],
+      [
+        1,
+        "Country"
+      ],
+      [
+        1,
+        "Song_Name"
+      ],
+      [
+        1,
+        "Song_release_year"
+      ],
+      [
+        1,
+        "Age"
+      ],
+      [
+        1,
+        "Is_male"
+      ],
+      [
+        2,
+        "concert_ID"
+      ],
+      [
+        2,
+        "concert_Name"
+      ],
+      [
+        2,
+        "Theme"
+      ],
+      [
+        2,
+        "Stadium_ID"
+      ],
+      [
+        2,
+        "Year"
+      ],
+      [
+        3,
+        "concert_ID"
+      ],
+      [
+        3,
+        "Singer_ID"
+      ]
+    ],
+    "column_names": [
+      [
+        -1,
+        "*"
+      ],
+      [
+        0,
+        "stadium id"
+      ],
+      [
+        0,
+        "location"
+      ],
+      [
+        0,
+        "name"
+      ],
+      [
+        0,
+        "capacity"
+      ],
+      [
+        0,
+        "highest"
+      ],
+      [
+        0,
+        "lowest"
+      ],
+      [
+        0,
+        "average"
+      ],
+      [
+        1,
+        "singer id"
+      ],
+      [
+        1,
+        "name"
+      ],
+      [
+        1,
+        "country"
+      ],
+      [
+        1,
+        "song name"
+      ],
+      [
+        1,
+        "song release year"
+      ],
+      [
+        1,
+        "age"
+      ],
+      [
+        1,
+        "is male"
+      ],
+      [
+        2,
+        "concert id"
+      ],
+      [
+        2,
+        "concert name"
+      ],
+      [
+        2,
+        "theme"
+      ],
+      [
+        2,
+        "stadium id"
+      ],
+      [
+        2,
+        "year"
+      ],
+      [
+        3,
+        "concert id"
+      ],
+      [
+        3,
+        "singer id"
+      ]
+    ],
+    "column_types": [
+      "text",
+      "number",
+      "text",
+      "text",
+      "number",
+      "number",
+      "number",
+      "number",
+      "number",
+      "text",
+      "text",
+      "text",
+      "text",
+      "number",
+      "others",
+      "number",
+      "text",
+      "text",
+      "number",
+      "text",
+      "number",
+      "number"
+    ],
+    "primary_keys": [
+      1,
+      8,
+      15,
+      20
+    ],
+    "foreign_keys": [
+      [
+        18,
+        1
+      ],
+      [
+        20,
+        15
+      ],
+      [
+        21,
+        8
+      ]
+    ]
+  }
+]

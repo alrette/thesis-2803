@@ -1,0 +1,66 @@
+{
+  "databases": [
+    {
+      "db_id": "student_transcripts_tracking",
+      "display_name": "Student Transcripts & Courses (Demo)",
+      "description": "University departments, degree programs, courses, sections, semesters, student enrollments, and transcripts.",
+      "sample_questions": [
+        {
+          "question": "How many departments are there?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "List all course names and their descriptions.",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Which department offers the most degree programs?",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Show the first and last names of students enrolled in Fall 2025.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Which courses are taken by Alice Tan?",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "How many courses appear in each transcript?",
+          "difficulty": "Hard"
+        }
+      ]
+    },
+    {
+      "db_id": "concert_singer",
+      "display_name": "Concerts & Singers (Demo)",
+      "description": "Stadiums, singers, concert events, and performer lineups (Spider schema).",
+      "sample_questions": [
+        {
+          "question": "How many singers do we have?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Show name, country, and age for all singers ordered by age from oldest to youngest.",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "What is the average, minimum, and maximum age of all singers from France?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Show the stadium name and the number of concerts in each stadium.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Show the concert name and theme along with the number of singers in each concert.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "What are the names of stadiums that have never held a concert?",
+          "difficulty": "Hard"
+        }
+      ]
+    }
+  ]
+}
