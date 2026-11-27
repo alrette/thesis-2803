@@ -126,7 +126,8 @@ class GraphRAG1StageRetriever:
 
         self.cfg = settings
         self.table_graph = table_graph
-        self.embed_model = SentenceTransformer(settings.embedding_model)
+        # CPU on purpose: ZeroGPU reports CUDA as available but rejects GPU use outside @spaces.GPU.
+        self.embed_model = SentenceTransformer(settings.embedding_model, device="cpu")
         logger.info("Loaded embedding model: %s", settings.embedding_model)
 
         self.table_cache: dict[str, TableSchemaIndex] = {}

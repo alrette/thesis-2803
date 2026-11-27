@@ -8,11 +8,15 @@ Embeddings run on CPU; no request touches the GPU.
 
 from __future__ import annotations
 
+import threading
+from contextlib import asynccontextmanager
+
 import gradio as gr
 from fastapi.routing import APIRoute
 
+import app.main as api
 from app.main import app as api_app
-from app.main import health, lifespan
+from app.main import health
 
 try:
     import spaces  # preinstalled on ZeroGPU; optional when running locally
@@ -49,6 +53,16 @@ with gr.Blocks(title="GraphRAG 1-Stage Text-to-SQL API") as demo:
     gr.Button("Refresh status").click(_status_markdown, outputs=status)
     demo.load(_status_markdown, outputs=status)
 
+
+@asynccontextmanager
+async def background_startup(_app):
+    """Load bge-m3 in a thread: a blocking load outlasts Gradio's startup wait ("Cannot find empty port").
+    Until it finishes, /health says ready=false and the API answers 503 "Service is starting up"."""
+    api.state = api.AppState(api.get_settings())
+    threading.Thread(target=api.state.load, name="backend-load", daemon=True).start()
+    yield
+
+
 # Spaces start the Gradio server on port 7860 themselves, so the API rides on Gradio's app instead of
 # running its own uvicorn: our routes, CORS middleware and startup (lifespan) go in through app_kwargs.
 API_ROUTES = [r for r in api_app.routes if isinstance(r, APIRoute) and (r.path == "/health" or r.path.startswith("/api/"))]
@@ -58,6 +72,6 @@ if __name__ == "__main__":
         app_kwargs={
             "routes": API_ROUTES,
             "middleware": list(api_app.user_middleware),
-            "lifespan": lifespan,
+            "lifespan": background_startup,
         }
     )
