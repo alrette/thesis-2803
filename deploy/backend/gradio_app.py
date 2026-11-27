@@ -12,7 +12,7 @@ import threading
 from contextlib import asynccontextmanager
 
 import gradio as gr
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, APIRouter
 
 import app.main as api
 from app.main import app as api_app
@@ -42,8 +42,8 @@ def _status_markdown() -> str:
         f"- LLM: `{h.get('llm_model')}` ({h.get('llm_api_mode')} mode)\n"
         f"- Few-shot k: {h.get('few_shot_k')}, table threshold: {h.get('table_threshold')}\n\n"
         "This Space is the API behind the Text-to-SQL Workbench frontend. "
-        "Endpoints: `GET /health`, `GET /api/databases`, `GET /api/databases/{db_id}`, "
-        "`POST /api/generate`, `POST /api/execute`."
+        "Frontend API base URL: `https://<space>.hf.space/gradio_api/sql` "
+        "(`/health`, `/api/databases`, `/api/databases/{db_id}`, `/api/generate`, `/api/execute`)."
     )
 
 
@@ -67,10 +67,17 @@ async def background_startup(_app):
 # running its own uvicorn: our routes, CORS middleware and startup (lifespan) go in through app_kwargs.
 API_ROUTES = [r for r in api_app.routes if isinstance(r, APIRoute) and (r.path == "/health" or r.path.startswith("/api/"))]
 
+# On Spaces a Gradio SSR server sits in front and forwards only /gradio_api/* to Python, so the frontend
+# uses API base URL https://<space>.hf.space/gradio_api/sql; the unprefixed routes remain for local runs.
+API_PREFIX = "/gradio_api/sql"
+_prefixed = APIRouter(prefix=API_PREFIX)
+for _route in API_ROUTES:
+    _prefixed.add_api_route(_route.path, _route.endpoint, methods=list(_route.methods), response_model=_route.response_model)
+
 if __name__ == "__main__":
     demo.launch(
         app_kwargs={
-            "routes": API_ROUTES,
+            "routes": API_ROUTES + list(_prefixed.routes),
             "middleware": list(api_app.user_middleware),
             "lifespan": background_startup,
         }
