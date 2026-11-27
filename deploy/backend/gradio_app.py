@@ -9,9 +9,10 @@ Embeddings run on CPU; no request touches the GPU.
 from __future__ import annotations
 
 import gradio as gr
-import uvicorn
+from fastapi.routing import APIRoute
 
-from app.main import app, health
+from app.main import app as api_app
+from app.main import health, lifespan
 
 try:
     import spaces  # preinstalled on ZeroGPU; optional when running locally
@@ -48,8 +49,15 @@ with gr.Blocks(title="GraphRAG 1-Stage Text-to-SQL API") as demo:
     gr.Button("Refresh status").click(_status_markdown, outputs=status)
     demo.load(_status_markdown, outputs=status)
 
-# API routes are registered on `app` first, so they take precedence over the Gradio mount at "/".
-app = gr.mount_gradio_app(app, demo, path="/")
+# Spaces start the Gradio server on port 7860 themselves, so the API rides on Gradio's app instead of
+# running its own uvicorn: our routes, CORS middleware and startup (lifespan) go in through app_kwargs.
+API_ROUTES = [r for r in api_app.routes if isinstance(r, APIRoute) and (r.path == "/health" or r.path.startswith("/api/"))]
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    demo.launch(
+        app_kwargs={
+            "routes": API_ROUTES,
+            "middleware": list(api_app.user_middleware),
+            "lifespan": lifespan,
+        }
+    )
