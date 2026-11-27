@@ -1,290 +1,317 @@
-import { useEffect, useState } from "react";
-import { Columns3, GitFork, Loader2, Network, Table2 } from "lucide-react";
-import { DatabaseSelector } from "./components/DatabaseSelector";
-import { ErdDiagram } from "./components/ErdDiagram";
-import { Header } from "./components/Header";
-import { QueryWorkspace } from "./components/QueryWorkspace";
-import { ResultsTable } from "./components/ResultsTable";
-import { SchemaExplorer } from "./components/SchemaExplorer";
-import {
-  executeSql,
-  fetchDatabaseDetail,
-  fetchDatabases,
-  fetchHealth,
-  generateSql,
-} from "./lib/api";
-import type {
-  DatabaseDetail,
-  DatabaseSummary,
-  ExecuteResponse,
-  GenerateResponse,
-  HealthResponse,
-} from "./types/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Answer } from "./components/Answer";
+import { Composer } from "./components/Composer";
+import { ErdDialog } from "./components/ErdDialog";
+import { IconClose, IconMenu, IconPlus } from "./components/icons";
+import { Sidebar } from "./components/Sidebar";
+import { executeSql, fetchDatabaseDetail, fetchDatabases, fetchHealth, generateSql } from "./lib/api";
+import { formatSql } from "./lib/sql";
+import { useTheme } from "./lib/theme";
+import type { DatabaseDetail, DatabaseSummary, HealthResponse } from "./types/api";
+import type { AssistantMessage, ChatMessage } from "./types/chat";
 
-type SchemaViewMode = "erd" | "tables";
+const EMPTY: string[] = [];
+const NO_SCORES: Record<string, number> = {};
+let nextId = 0;
+const newId = () => `m${++nextId}`;
+
+const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 
 export default function App() {
+  const [theme, toggleTheme] = useTheme();
+
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
-
   const [databases, setDatabases] = useState<DatabaseSummary[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [selectedDbId, setSelectedDbId] = useState<string | null>(null);
-  const [dbDetail, setDbDetail] = useState<DatabaseDetail | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [dbId, setDbId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, DatabaseDetail>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const [schemaView, setSchemaView] = useState<SchemaViewMode>("erd");
+  // One conversation and one unsent draft per database, so switching back and forth loses nothing.
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
-  const [question, setQuestion] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generation, setGeneration] = useState<GenerateResponse | null>(null);
-  const [sqlDraft, setSqlDraft] = useState("");
+  const [erdOpen, setErdOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  const [executing, setExecuting] = useState(false);
-  const [execError, setExecError] = useState<string | null>(null);
-  const [execResult, setExecResult] = useState<ExecuteResponse | null>(null);
+  const selectDb = useCallback(
+    async (id: string) => {
+      setDbId(id);
+      setDrawerOpen(false);
+      setDetailError(null);
+      if (details[id]) return;
+      setDetailLoading(true);
+      try {
+        const d = await fetchDatabaseDetail(id);
+        setDetails((prev) => ({ ...prev, [id]: d }));
+      } catch (err) {
+        setDetailError(errorText(err, "Failed to load the schema."));
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [details]
+  );
 
   useEffect(() => {
-    let active = true;
-
-    fetchHealth()
-      .then((h) => {
-        if (active) setHealth(h);
-      })
-      .catch((err: unknown) => {
-        if (active) setHealthError(err instanceof Error ? err.message : "Backend unreachable");
-      });
-
-    fetchDatabases()
-      .then((dbs) => {
-        if (active) setDatabases(dbs);
-      })
-      .catch((err: unknown) => {
-        if (active) setListError(err instanceof Error ? err.message : "Failed to load databases");
-      })
-      .finally(() => {
-        if (active) setLoadingList(false);
-      });
-
-    return () => {
-      active = false;
-    };
+    fetchHealth().then(setHealth, (err) => setHealthError(errorText(err, "Backend unreachable")));
+    fetchDatabases().then(
+      (dbs) => setDatabases(dbs),
+      (err) => setListError(errorText(err, "Could not load the database list."))
+    );
   }, []);
 
-  const handleSelectDb = async (dbId: string) => {
-    setSelectedDbId(dbId);
-    setDbDetail(null);
-    setDetailError(null);
-    setLoadingDetail(true);
-    setQuestion("");
-    setGeneration(null);
-    setGenerateError(null);
-    setSqlDraft("");
-    setExecResult(null);
-    setExecError(null);
+  // Open the first database straight away so the page lands on a usable chat.
+  useEffect(() => {
+    if (!dbId && databases.length > 0) void selectDb(databases[0].db_id);
+  }, [databases, dbId, selectDb]);
 
+  const detail = dbId ? details[dbId] ?? null : null;
+  const messages = useMemo(() => (dbId ? chats[dbId] ?? [] : []), [chats, dbId]);
+  const busy = messages.some((m) => m.role === "assistant" && m.status === "pending");
+
+  const latest = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.generation) return m;
+    }
+    return null;
+  }, [messages]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, busy]);
+
+  const patch = (db: string, id: string, change: Partial<AssistantMessage>) =>
+    setChats((prev) => ({
+      ...prev,
+      [db]: (prev[db] ?? []).map((m) => (m.id === id && m.role === "assistant" ? { ...m, ...change } : m)),
+    }));
+
+  const generate = async (db: string, id: string, question: string) => {
     try {
-      const detail = await fetchDatabaseDetail(dbId);
-      setDbDetail(detail);
-    } catch (err: unknown) {
-      setDetailError(err instanceof Error ? err.message : "Failed to load database schema");
-    } finally {
-      setLoadingDetail(false);
+      const g = await generateSql(db, question);
+      patch(db, id, { status: "done", generation: g, sql: formatSql(g.sql) });
+    } catch (err) {
+      patch(db, id, { status: "error", error: errorText(err, "The model did not answer. Try again in a moment.") });
     }
   };
 
-  const handleBackToPicker = () => {
-    setSelectedDbId(null);
-    setDbDetail(null);
-    setGeneration(null);
-    setSqlDraft("");
-    setExecResult(null);
-    setExecError(null);
+  const send = (text: string) => {
+    if (!dbId) return;
+    const db = dbId;
+    const answerId = newId();
+    setChats((prev) => ({
+      ...prev,
+      [db]: [
+        ...(prev[db] ?? []),
+        { id: newId(), role: "user", text },
+        { id: answerId, role: "assistant", question: text, status: "pending", sql: "", editing: false, executing: false },
+      ],
+    }));
+    void generate(db, answerId, text);
   };
 
-  const handleGenerate = async () => {
-    if (!selectedDbId || !question.trim()) return;
-    setGenerating(true);
-    setGenerateError(null);
-    setExecResult(null);
-    setExecError(null);
+  const retry = (msg: AssistantMessage) => {
+    if (!dbId) return;
+    patch(dbId, msg.id, { status: "pending", error: undefined });
+    void generate(dbId, msg.id, msg.question);
+  };
 
+  const run = async (msg: AssistantMessage) => {
+    if (!dbId) return;
+    const db = dbId;
+    patch(db, msg.id, { executing: true, execError: undefined });
     try {
-      const res = await generateSql(selectedDbId, question.trim());
-      setGeneration(res);
-      setSqlDraft(res.sql);
-    } catch (err: unknown) {
-      setGenerateError(err instanceof Error ? err.message : "Failed to generate SQL");
-    } finally {
-      setGenerating(false);
+      const result = await executeSql(db, msg.sql.trim());
+      patch(db, msg.id, { executing: false, result });
+    } catch (err) {
+      patch(db, msg.id, { executing: false, result: undefined, execError: errorText(err, "The query could not run.") });
     }
   };
 
-  const handleExecute = async () => {
-    if (!selectedDbId || !sqlDraft.trim()) return;
-    setExecuting(true);
-    setExecError(null);
+  const disabledReason = healthError
+    ? "The backend is unreachable, so questions can't be answered right now."
+    : health && !health.llm_configured
+      ? "The model API isn't configured on the server yet."
+      : !detail
+        ? "Waiting for the database schema"
+        : null;
 
-    try {
-      const res = await executeSql(selectedDbId, sqlDraft.trim());
-      setExecResult(res);
-    } catch (err: unknown) {
-      setExecError(err instanceof Error ? err.message : "Failed to execute SQL");
-    } finally {
-      setExecuting(false);
-    }
-  };
+  const sidebar = (
+    <Sidebar
+      databases={databases}
+      listError={listError}
+      selectedDbId={dbId}
+      onSelectDb={(id) => void selectDb(id)}
+      detail={detail}
+      detailLoading={detailLoading}
+      detailError={detailError}
+      usedTables={latest?.generation?.detected_tables ?? EMPTY}
+      bridgeTables={latest?.generation?.bridge_tables ?? EMPTY}
+      tableScores={latest?.generation?.table_scores ?? NO_SCORES}
+      onOpenErd={() => setErdOpen(true)}
+      health={health}
+      healthError={healthError}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    />
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <Header
-        health={health}
-        healthError={healthError}
-        selectedDbName={dbDetail?.display_name ?? selectedDbId}
-        onBackToPicker={handleBackToPicker}
-      />
+    <div className="flex h-full">
+      <aside className="hidden w-[300px] shrink-0 border-r border-line bg-surface/50 lg:block">{sidebar}</aside>
 
-      {!selectedDbId ? (
-        <DatabaseSelector
-          databases={databases}
-          loading={loadingList}
-          error={listError}
-          onSelect={handleSelectDb}
-        />
-      ) : loadingDetail ? (
-        <div className="flex h-[70vh] flex-col items-center justify-center gap-3 text-slate-400">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-          <p className="text-sm">Loading database schema and ERD…</p>
-        </div>
-      ) : detailError || !dbDetail ? (
-        <div className="mx-auto max-w-2xl px-4 py-12">
-          <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-5 text-sm text-rose-200">
-            <p className="font-semibold">Failed to load database</p>
-            <p className="mt-1 text-xs">{detailError}</p>
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            className="anim-fade absolute inset-0 bg-black/30"
+            aria-label="Close schema panel"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <aside className="anim-rise absolute inset-y-0 left-0 w-[min(320px,88vw)] border-r border-line bg-bg">
             <button
               type="button"
-              onClick={handleBackToPicker}
-              className="mt-4 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+              onClick={() => setDrawerOpen(false)}
+              className="absolute top-4 right-3 rounded-md p-1.5 text-muted hover:bg-sunken"
+              aria-label="Close schema panel"
             >
-              Back to Database List
+              <IconClose size={15} />
             </button>
+            {sidebar}
+          </aside>
+        </div>
+      )}
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="-ml-1.5 rounded-md p-1.5 text-muted hover:bg-sunken hover:text-ink lg:hidden"
+            aria-label="Open databases and schema"
+          >
+            <IconMenu size={17} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[14.5px] font-medium">{detail?.display_name ?? "No database selected"}</p>
+            {detail?.description && <p className="truncate text-[12.5px] text-muted">{detail.description}</p>}
+          </div>
+          {messages.length > 0 && dbId && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setChats((prev) => ({ ...prev, [dbId]: [] }))}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink disabled:opacity-50"
+            >
+              <IconPlus size={13} />
+              New chat
+            </button>
+          )}
+        </header>
+
+        <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[46rem] px-4 sm:px-6">
+            {messages.length === 0 ? (
+              <EmptyState detail={detail} loading={detailLoading} onPick={(q) => dbId && setDrafts((d) => ({ ...d, [dbId]: q }))} />
+            ) : (
+              <ol className="space-y-7 pt-8 pb-6">
+                {messages.map((m) =>
+                  m.role === "user" ? (
+                    <li key={m.id} className="anim-rise flex justify-end">
+                      <p className="max-w-[85%] rounded-lg bg-sunken px-3.5 py-2 text-[15px] whitespace-pre-wrap">{m.text}</p>
+                    </li>
+                  ) : (
+                    <li key={m.id}>
+                      <Answer
+                        msg={m}
+                        onRun={() => void run(m)}
+                        onRetry={() => retry(m)}
+                        onSqlChange={(sql) => dbId && patch(dbId, m.id, { sql, result: undefined, execError: undefined })}
+                        onToggleEdit={() => dbId && patch(dbId, m.id, { editing: !m.editing })}
+                      />
+                    </li>
+                  )
+                )}
+              </ol>
+            )}
+            <div ref={bottomRef} />
           </div>
         </div>
-      ) : (
-        <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
-          {/* Database summary bar */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-white">{dbDetail.display_name}</h2>
-                <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-400">
-                  {dbDetail.db_id}
-                </span>
-              </div>
-              {dbDetail.description && (
-                <p className="mt-0.5 text-xs text-slate-400">{dbDetail.description}</p>
-              )}
-            </div>
 
-            <div className="flex items-center gap-4 text-xs text-slate-300">
-              <span className="inline-flex items-center gap-1.5">
-                <Table2 className="h-3.5 w-3.5 text-sky-400" />
-                {dbDetail.table_count} tables
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Columns3 className="h-3.5 w-3.5 text-emerald-400" />
-                {dbDetail.column_count} columns
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <GitFork className="h-3.5 w-3.5 text-amber-400" />
-                {dbDetail.fk_count} foreign keys
-              </span>
-            </div>
+        <div className="shrink-0 px-4 pt-2 pb-4 sm:px-6">
+          <div className="mx-auto max-w-[46rem]">
+            <Composer
+              dbName={detail?.display_name ?? null}
+              disabledReason={disabledReason}
+              busy={busy}
+              onSend={send}
+              draft={dbId ? drafts[dbId] ?? "" : ""}
+              onDraftChange={(text) => dbId && setDrafts((d) => ({ ...d, [dbId]: text }))}
+            />
           </div>
+        </div>
+      </main>
 
-          {/* Two-column workbench: Step 2 (Schema & ERD) + Steps 3-5 (Query & Results) */}
-          <div className="grid gap-5 lg:grid-cols-12">
-            {/* Left column: Step 2 — Interactive ERD & Table/Column Explorer */}
-            <section className="flex h-[560px] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 lg:col-span-6 lg:h-[calc(100vh-185px)]">
-              <div className="flex items-center justify-between border-b border-slate-800 px-3.5 py-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Step 2 • Schema &amp; Interactive ERD
-                </span>
-                <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setSchemaView("erd")}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
-                      schemaView === "erd"
-                        ? "bg-indigo-600 text-white"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    <Network className="h-3.5 w-3.5" />
-                    ERD
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSchemaView("tables")}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
-                      schemaView === "tables"
-                        ? "bg-indigo-600 text-white"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    <Table2 className="h-3.5 w-3.5" />
-                    Tables ({dbDetail.table_count})
-                  </button>
-                </div>
-              </div>
+      {detail && (
+        <ErdDialog
+          open={erdOpen}
+          onClose={() => setErdOpen(false)}
+          detail={detail}
+          pickedTables={latest?.generation?.detected_tables ?? EMPTY}
+          bridgeTables={latest?.generation?.bridge_tables ?? EMPTY}
+          tableScores={latest?.generation?.table_scores ?? NO_SCORES}
+          lastQuestion={latest?.question ?? null}
+        />
+      )}
+    </div>
+  );
+}
 
-              <div className="min-h-0 flex-1">
-                {schemaView === "erd" ? (
-                  <ErdDiagram
-                    dbId={dbDetail.db_id}
-                    tables={dbDetail.tables}
-                    edges={dbDetail.edges}
-                    detectedTables={generation?.detected_tables ?? []}
-                    bridgeTables={generation?.bridge_tables ?? []}
-                    tableScores={generation?.table_scores ?? {}}
-                  />
-                ) : (
-                  <SchemaExplorer
-                    tables={dbDetail.tables}
-                    detectedTables={generation?.detected_tables ?? []}
-                    bridgeTables={generation?.bridge_tables ?? []}
-                    tableScores={generation?.table_scores ?? {}}
-                  />
-                )}
-              </div>
-            </section>
-
-            {/* Right column: Steps 3-5 — Sample Questions, Generate SQL, Run SQL Results */}
-            <section className="space-y-4 lg:col-span-6">
-              <QueryWorkspace
-                sampleQuestions={dbDetail.sample_questions}
-                question={question}
-                onQuestionChange={setQuestion}
-                onGenerate={handleGenerate}
-                generating={generating}
-                generateError={generateError}
-                generation={generation}
-                sqlDraft={sqlDraft}
-                onSqlDraftChange={setSqlDraft}
-                onExecute={handleExecute}
-                executing={executing}
-                llmModel={health?.llm_model ?? null}
-                fewShotK={health?.few_shot_k ?? null}
-              />
-
-              <ResultsTable result={execResult} error={execError} />
-            </section>
-          </div>
-        </main>
+function EmptyState({
+  detail,
+  loading,
+  onPick,
+}: {
+  detail: DatabaseDetail | null;
+  loading: boolean;
+  onPick: (q: string) => void;
+}) {
+  if (!detail) {
+    return <p className="pt-24 text-[14px] text-muted">{loading ? "Loading the schema…" : ""}</p>;
+  }
+  return (
+    <div className="anim-rise pt-[12vh] pb-8">
+      <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] text-balance">
+        What do you want to know about {detail.display_name}?
+      </h1>
+      <p className="mt-2 max-w-[34rem] text-[15px] text-muted">
+        Ask in plain English. You get SQL back, built from the tables GraphRAG picks, and you can run it against the
+        database here.
+      </p>
+      {detail.sample_questions.length > 0 && (
+        <div className="mt-9">
+          <p className="mb-2 text-[12.5px] font-medium text-muted">Try one of these</p>
+          <ul className="divide-y divide-line border-y border-line">
+            {detail.sample_questions.map((s) => (
+              <li key={s.question}>
+                <button
+                  type="button"
+                  onClick={() => onPick(s.question)}
+                  className="group flex w-full items-baseline justify-between gap-4 py-2.5 text-left text-[14.5px] transition-colors hover:text-accent"
+                >
+                  <span>{s.question}</span>
+                  <span className="shrink-0 text-[12px] text-faint group-hover:text-accent/70">{s.difficulty}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

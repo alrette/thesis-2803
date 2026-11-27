@@ -2,7 +2,7 @@
 
 Web workbench for user evaluation of **GraphRAG 1-Stage** (with optional Skeleton Few-Shot, default `k = 0`) using **Qwen2.5-Coder-32B-Instruct** on **Cloudflare Workers AI** over curated multi-table **Spider** databases.
 
-- **Frontend (`deploy/frontend/`)**: Vite + React + TypeScript + Tailwind + `@xyflow/react` (interactive ERD with live GraphRAG table highlighting) → deployed free on **Cloudflare Pages**.
+- **Frontend (`deploy/frontend/`)**: Vite + React + TypeScript + Tailwind + `@xyflow/react`. One page: a chat in the middle (question → SQL → run it, with the retrieval trace under each answer), the database picker and a `tree`-style schema on the left, and the ERD in a dialog that outlines the tables GraphRAG picked → deployed free on **Cloudflare Pages**.
 - **Backend (`deploy/backend/`)**: Self-contained FastAPI service running local **`BAAI/bge-m3`** + NetworkX table-graph path tracing + optional live **`spaCy`** skeleton masking (only loaded when `FEW_SHOT_K > 0`) + read-only native **SQLite** execution + **Cloudflare Workers AI** (`@cf/qwen/qwen2.5-coder-32b-instruct`) → deployed free on **Hugging Face Spaces (CPU Basic, 16 GB RAM)**.
 
 ---

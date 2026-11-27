@@ -1,79 +1,47 @@
-import { AlertCircle, CheckCircle2, TableProperties } from "lucide-react";
 import type { ExecuteResponse } from "../types/api";
 
-interface ResultsTableProps {
-  result: ExecuteResponse | null;
-  error: string | null;
-}
+export function ResultsTable({ result, error }: { result?: ExecuteResponse; error?: string }) {
+  const failure = error ?? (result && !result.ok ? result.error ?? "SQLite returned an error." : null);
 
-export function ResultsTable({ result, error }: ResultsTableProps) {
-  if (!result && !error) return null;
-
-  if (error || (result && !result.ok)) {
+  if (failure) {
     return (
-      <div className="rounded-xl border border-rose-500/35 bg-rose-950/30 p-4">
-        <div className="flex items-start gap-2.5 text-rose-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
-          <div>
-            <p className="text-sm font-medium">SQL Execution Failed</p>
-            <p className="mt-1 font-mono text-xs text-rose-300/90">
-              {error || result?.error || "Unknown SQLite execution error."}
-            </p>
-          </div>
-        </div>
+      <div className="anim-rise mt-3 rounded-md border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-[13.5px]">
+        <p className="font-medium text-danger">The query did not run</p>
+        <p className="mt-0.5 font-mono text-[12.5px] text-ink/80">{failure}</p>
       </div>
     );
   }
-
   if (!result) return null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
-        <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
-          <CheckCircle2 className="h-4 w-4" />
-          <span>Query Executed Successfully</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <TableProperties className="h-3.5 w-3.5" />
-          <span>
-            {result.row_count} {result.row_count === 1 ? "row" : "rows"}
-            {result.truncated ? " (capped at limit)" : ""}
-          </span>
-          <span className="text-slate-700">•</span>
-          <span>{result.execution_ms} ms</span>
-        </div>
+    <div className="anim-rise mt-3 overflow-hidden rounded-md border border-line bg-surface">
+      <div className="flex items-center justify-between border-b border-line px-3.5 py-2 text-[12.5px] text-muted">
+        <span>
+          {result.row_count} {result.row_count === 1 ? "row" : "rows"}
+          {result.truncated && `, first ${result.row_count} shown`}
+        </span>
+        <span className="font-mono text-faint">{result.execution_ms} ms</span>
       </div>
-
       {result.rows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-xs text-slate-400">
-          Query returned 0 rows.
-        </div>
+        <p className="px-3.5 py-4 text-[13.5px] text-muted">The query ran and returned no rows.</p>
       ) : (
-        <div className="max-h-96 overflow-auto">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead className="sticky top-0 bg-slate-950 text-slate-300">
+        <div className="thin-scroll max-h-80 overflow-auto">
+          <table className="w-full border-collapse text-left font-mono text-[12.5px]">
+            <thead className="sticky top-0 bg-surface">
               <tr>
-                {result.columns.map((col, idx) => (
-                  <th
-                    key={`${col}-${idx}`}
-                    className="whitespace-nowrap border-b border-slate-800 px-3.5 py-2 font-mono font-semibold"
-                  >
-                    {col}
+                {result.columns.map((c, i) => (
+                  <th key={`${c}-${i}`} className="border-b border-line px-3.5 py-1.5 font-medium whitespace-nowrap text-muted">
+                    {c}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/70 font-mono text-slate-200">
-              {result.rows.map((row, rIdx) => (
-                <tr key={rIdx} className="hover:bg-slate-800/40">
-                  {row.map((cell, cIdx) => (
-                    <td key={cIdx} className="whitespace-nowrap px-3.5 py-2">
-                      {cell === null ? (
-                        <span className="italic text-slate-500">NULL</span>
-                      ) : (
-                        String(cell)
-                      )}
+            <tbody>
+              {result.rows.map((row, r) => (
+                <tr key={r} className="border-b border-line/60 last:border-0 hover:bg-sunken/60">
+                  {row.map((cell, c) => (
+                    <td key={c} className="px-3.5 py-1.5 whitespace-nowrap text-ink">
+                      {cell === null ? <span className="text-faint">NULL</span> : String(cell)}
                     </td>
                   ))}
                 </tr>
