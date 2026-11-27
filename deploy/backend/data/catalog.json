@@ -2,50 +2,170 @@
   "databases": [
     {
       "db_id": "student_transcripts_tracking",
-      "display_name": "Student Transcripts & Courses (Demo)",
-      "description": "University departments, degree programs, courses, sections, semesters, student enrollments, and transcripts.",
+      "display_name": "Student Transcripts & Courses",
+      "description": "University degrees, departments, courses, student enrollments, semesters, and transcript records.",
       "sample_questions": [
         {
-          "question": "How many departments are there?",
+          "question": "what are all the addresses including line 1 and line 2?",
           "difficulty": "Easy"
         },
         {
-          "question": "List all course names and their descriptions.",
-          "difficulty": "Easy"
-        },
-        {
-          "question": "Which department offers the most degree programs?",
+          "question": "Which department offers the most number of degrees? List department name and id.",
           "difficulty": "Medium"
         },
         {
-          "question": "Show the first and last names of students enrolled in Fall 2025.",
-          "difficulty": "Medium"
-        },
-        {
-          "question": "Which courses are taken by Alice Tan?",
+          "question": "Who is enrolled in a Bachelor degree program? List the first name, middle name, last name.",
           "difficulty": "Hard"
         },
         {
-          "question": "How many courses appear in each transcript?",
+          "question": "How many courses in total are listed?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "How many degrees does the engineering department offer?",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Which semesters do not have any student enrolled? List the semester name.",
+          "difficulty": "Hard"
+        }
+      ]
+    },
+    {
+      "db_id": "dog_kennels",
+      "display_name": "Dog Kennels & Treatments",
+      "description": "Dogs, owners, breeds, sizes, professionals, treatments, and service charges.",
+      "sample_questions": [
+        {
+          "question": "List the emails of the professionals who live in the state of Hawaii or the state of Wisconsin.",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Which owner owns the most dogs? List the owner id, first name and last name.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Which states have both owners and professionals living there?",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "What are the arriving date and the departing date of all the dogs?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Which professionals have done at least two treatments? List the professional's id, role, and first name.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "What is the average age of the dogs who have gone through any treatments?",
+          "difficulty": "Hard"
+        }
+      ]
+    },
+    {
+      "db_id": "car_1",
+      "display_name": "Car Makers & Models",
+      "description": "Continents, countries, car manufacturers, model lists, and vehicle performance specs.",
+      "sample_questions": [
+        {
+          "question": "How many continents are there?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "How many countries does each continent have? List the continent id, continent name and the number of countries.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Find the model of the car whose weight is below the average weight.",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "How many countries are listed?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "How many models does each car maker produce? List maker full name, id and the number.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Find the name of the makers that produced some cars in the year of 1970?",
+          "difficulty": "Hard"
+        }
+      ]
+    },
+    {
+      "db_id": "real_estate_properties",
+      "display_name": "Real Estate Properties",
+      "description": "Property types, listings, features, and reference catalogs.",
+      "sample_questions": [
+        {
+          "question": "How many available features are there in total?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "What is the feature type name of feature AirCon?",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "What are the names of properties that are either houses or apartments with more than 1 room?",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "Show the property type descriptions of properties belonging to that code.",
+          "difficulty": "Medium"
+        }
+      ]
+    },
+    {
+      "db_id": "orchestra",
+      "display_name": "Orchestra & Performances",
+      "description": "Conductors, orchestras, performances, and show attendance.",
+      "sample_questions": [
+        {
+          "question": "How many conductors are there?",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Show the names of conductors and the orchestras they have conducted.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "List the names of orchestras that have no performance.",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "List the names of conductors in ascending order of age.",
+          "difficulty": "Easy"
+        },
+        {
+          "question": "Show the names of conductors that have conducted more than one orchestras.",
+          "difficulty": "Medium"
+        },
+        {
+          "question": "Show the record companies shared by orchestras founded before 2003 and after 2003.",
           "difficulty": "Hard"
         }
       ]
     },
     {
       "db_id": "concert_singer",
-      "display_name": "Concerts & Singers (Demo)",
-      "description": "Stadiums, singers, concert events, and performer lineups (Spider schema).",
+      "display_name": "Concerts & Singers",
+      "description": "Stadiums, singers, concert events, and performer lineups.",
       "sample_questions": [
         {
           "question": "How many singers do we have?",
           "difficulty": "Easy"
         },
         {
-          "question": "Show name, country, and age for all singers ordered by age from oldest to youngest.",
-          "difficulty": "Easy"
+          "question": "Show all countries and the number of singers in each country.",
+          "difficulty": "Medium"
         },
         {
-          "question": "What is the average, minimum, and maximum age of all singers from France?",
+          "question": "List all song names by singers above the average age.",
+          "difficulty": "Hard"
+        },
+        {
+          "question": "Show name, country, age for all singers ordered by age from the oldest to the youngest.",
           "difficulty": "Easy"
         },
         {
@@ -53,11 +173,7 @@
           "difficulty": "Medium"
         },
         {
-          "question": "Show the concert name and theme along with the number of singers in each concert.",
-          "difficulty": "Medium"
-        },
-        {
-          "question": "What are the names of stadiums that have never held a concert?",
+          "question": "Show the stadium names without any concert.",
           "difficulty": "Hard"
         }
       ]
