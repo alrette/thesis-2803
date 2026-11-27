@@ -6,6 +6,7 @@ export interface HealthResponse {
   pipeline: string;
   embedding_model: string;
   llm_model: string;
+  llm_api_mode?: string;
   table_threshold: number;
   few_shot_k: number;
   error: string | null;

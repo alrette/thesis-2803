@@ -15,6 +15,12 @@ export function Header({
   onBackToPicker,
 }: HeaderProps) {
   const isOnline = Boolean(health?.ready);
+  const subtitle =
+    health == null
+      ? "1-Stage Table Graph Text-to-SQL"
+      : health.few_shot_k > 0
+        ? `1-Stage Table Graph + Skeleton Few-Shot (k=${health.few_shot_k})`
+        : "1-Stage Table Graph • Zero-Shot (k=0)";
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur">
@@ -32,9 +38,7 @@ export function Header({
               <h1 className="text-sm font-semibold tracking-tight text-slate-100 sm:text-base">
                 GraphRAG Text-to-SQL
               </h1>
-              <p className="text-xs text-slate-400">
-                1-Stage Table Graph + Skeleton Few-Shot
-              </p>
+              <p className="text-xs text-slate-400">{subtitle}</p>
             </div>
           </button>
 
@@ -55,7 +59,10 @@ export function Header({
 
         <div className="flex items-center gap-2.5">
           {health && (
-            <div className="hidden items-center gap-1.5 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-xs text-slate-300 md:flex">
+            <div
+              title={health.llm_model}
+              className="hidden items-center gap-1.5 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-xs text-slate-300 md:flex"
+            >
               <Cpu className="h-3.5 w-3.5 text-indigo-400" />
               <span>{health.llm_model.split("/").pop()}</span>
               <span className="text-slate-600">•</span>

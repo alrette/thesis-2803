@@ -16,12 +16,15 @@ FastAPI backend powering the GraphRAG Text-to-SQL user evaluation workbench.
 
 Add these under **Settings → Variables and secrets**:
 
-- `LLM_API_KEY` — API key for your OpenAI-compatible Qwen2.5-Coder-7B provider
-- `LLM_BASE_URL` — Provider OpenAI-compatible base URL (e.g. DashScope / HF Router / SiliconFlow / DeepInfra)
-- `LLM_MODEL` — e.g. `Qwen/Qwen2.5-Coder-7B-Instruct`
+- `LLM_API_KEY` — Cloudflare API Token with Workers AI permission
+- `LLM_BASE_URL` — `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`
+- `LLM_MODEL` — `@cf/qwen/qwen2.5-coder-32b-instruct`
 - `CORS_ORIGINS` — Your Cloudflare Pages URL (e.g. `https://your-project.pages.dev`)
 
 Optional overrides (fixed defaults live in `app/settings.py`):
-- `FEW_SHOT_K` (default `3`, set `0` to disable few-shot)
-- `LLM_API_MODE` (`chat` default, or `completion`)
+- `FEW_SHOT_K` (default `0`, matching the final thesis run; set `1` / `3` / `5` / `9` to enable skeleton few-shot)
+- `LLM_API_MODE` (default `chat`; Cloudflare Workers AI OpenAI-compatible API supports `/chat/completions`, not `/completions`)
 - `TABLE_SIMILARITY_THRESHOLD` (default `0.65`)
+- `RATE_LIMIT_PER_MINUTE` (default `30`, per IP)
+- `GLOBAL_GENERATE_PER_MINUTE` (default `60`, global `/api/generate` cap)
+- `GLOBAL_GENERATE_PER_DAY` (default `500`, global daily `/api/generate` cap)

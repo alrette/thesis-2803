@@ -277,6 +277,8 @@ export default function App() {
                 onSqlDraftChange={setSqlDraft}
                 onExecute={handleExecute}
                 executing={executing}
+                llmModel={health?.llm_model ?? null}
+                fewShotK={health?.few_shot_k ?? null}
               />
 
               <ResultsTable result={execResult} error={execError} />

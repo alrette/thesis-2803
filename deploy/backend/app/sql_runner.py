@@ -2,11 +2,15 @@
 Strict read-only SQLite execution helper for the "Run SQL" button (Step 5).
 
 Safety guards:
-  1. Only allows single SELECT / WITH statements (rejects DML/DDL/ATTACH/PRAGMA).
-  2. Opens SQLite via RFC 8089 file URI with `?mode=ro` + `PRAGMA query_only = ON`.
-  3. Enforces a real wall-clock query timeout via `conn.set_progress_handler()`.
-  4. Caps returned rows to `max_rows` and flags `truncated = True` if more exist.
-  5. Decodes non-UTF-8 Spider cell bytes safely (same `text_factory` as sql_execution.py).
+  1. Strips SQL comments (`-- ...` and `/* ... */`) and string literals in a single
+     lexical pass before checking statement boundaries and forbidden keywords.
+  2. Only allows single SELECT / WITH statements; rejects DML/DDL/ATTACH/PRAGMA
+     (allows SQLite string function `REPLACE(...)` while rejecting `REPLACE INTO`
+     and `INSERT OR REPLACE`).
+  3. Opens SQLite via RFC 8089 file URI with `?mode=ro` + `PRAGMA query_only = ON`.
+  4. Enforces a real wall-clock query timeout via `conn.set_progress_handler()`.
+  5. Caps returned rows to `max_rows` and flags `truncated = True` if more exist.
+  6. Decodes non-UTF-8 Spider cell bytes safely (same `text_factory` as sql_execution.py).
 """
 
 from __future__ import annotations
@@ -18,11 +22,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Single-pass lexical scanner: string literals + line comments + block comments.
+_SQL_LEXER = re.compile(
+    r"'(?:''|[^'])*'"
+    r'|"(?:""|[^"])*"'
+    r"|--[^\r\n]*"
+    r"|/\*[\s\S]*?\*/"
+)
+
+# Forbidden write / schema / control keywords.
+# `REPLACE` is only allowed when immediately followed by `(` (SQLite string function
+# `REPLACE(x, y, z)`), never as `REPLACE INTO` or `INSERT OR REPLACE`.
 _FORBIDDEN_SQL = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|TRUNCATE|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b",
+    r"\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b"
+    r"|\bREPLACE\b(?!\s*\()",
     re.IGNORECASE,
 )
-_LEADING_COMMENTS = re.compile(r"^(?:\s|--[^\n]*\n|/\*.*?\*/)+", re.DOTALL)
 
 
 @dataclass
@@ -36,30 +51,42 @@ class SqlExecutionResult:
     error: str | None = None
 
 
-def _strip_string_literals(sql: str) -> str:
-    return re.sub(r"'([^']|'')*'|\"([^\"]|\"\")*\"", "''", sql)
+def _strip_literals_and_comments(sql: str) -> str:
+    """Replace string literals with '' and SQL comments with spaces in one pass."""
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if token.startswith("'") or token.startswith('"'):
+            return "''"
+        return " "
+
+    return _SQL_LEXER.sub(_replace, sql)
 
 
 def _validate_read_only_sql(sql: str) -> str | None:
-    cleaned = sql.strip()
-    if not cleaned:
+    if not sql or not sql.strip():
         return "SQL query is empty."
 
-    # Remove a single trailing semicolon if present
-    if cleaned.endswith(";"):
-        cleaned = cleaned[:-1].strip()
+    sanitized = _strip_literals_and_comments(sql).strip()
+    if "/*" in sanitized:
+        return "Unclosed block comment in SQL query."
 
-    unquoted = _strip_string_literals(cleaned)
-    if ";" in unquoted:
+    # Allow a single optional trailing semicolon after comments are removed
+    if sanitized.endswith(";"):
+        sanitized = sanitized[:-1].strip()
+
+    if not sanitized:
+        return "SQL query is empty."
+
+    if ";" in sanitized:
         return "Only a single SQL statement can be executed at a time."
 
-    head = _LEADING_COMMENTS.sub("", unquoted).lstrip().upper()
+    head = sanitized.upper()
     if not (head.startswith("SELECT") or head.startswith("WITH")):
         return "Only read-only SELECT queries are allowed."
 
-    forbidden = _FORBIDDEN_SQL.search(unquoted)
+    forbidden = _FORBIDDEN_SQL.search(sanitized)
     if forbidden:
-        return f"Disallowed SQL keyword in read-only mode: {forbidden.group(1).upper()}."
+        return f"Disallowed SQL keyword in read-only mode: {forbidden.group(0).upper()}."
 
     return None
 
@@ -118,7 +145,7 @@ def execute_readonly_sql(
         conn.set_progress_handler(_check_timeout, 5000)
 
         cur = conn.cursor()
-        cur.execute(sql.strip().rstrip(";"))
+        cur.execute(sql.strip())
         columns = [desc[0] for desc in (cur.description or [])]
         fetched = cur.fetchmany(max_rows + 1)
         truncated = len(fetched) > max_rows

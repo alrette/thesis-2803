@@ -4,7 +4,7 @@ Configuration for the GraphRAG 1-Stage + Skeleton Few-Shot deployment backend.
 All retrieval hyperparameters mirror `src/core/config.py` (PipelineConfig) so the
 deployed user-evaluation service stays faithful to the thesis method.
 
-To change the fixed few-shot k, edit `FEW_SHOT_K` below (or override via env var).
+To change the fixed few-shot k, edit `DEFAULT_FEW_SHOT_K` below (or override via env var).
 """
 
 from dataclasses import dataclass, field
@@ -51,12 +51,12 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 # ---------------------------------------------------------------------------
 # Researcher-controlled fixed defaults (edit here or override via HF Secrets)
 # ---------------------------------------------------------------------------
-# Fixed few-shot k (set 0 to disable few-shot & spaCy masking, or 1 / 3 / 5 / 9).
-DEFAULT_FEW_SHOT_K: int = 3
+# Fixed few-shot k (default 0, matching the final thesis run; set 1 / 3 / 5 / 9 to enable).
+DEFAULT_FEW_SHOT_K: int = 0
 # GraphRAG 1-Stage table similarity threshold (thesis config.py poin 46).
 DEFAULT_TABLE_THRESHOLD: float = 0.65
-# Default LLM model (Qwen2.5-Coder-7B-Instruct via OpenAI-compatible API).
-DEFAULT_LLM_MODEL: str = "Qwen/Qwen2.5-Coder-7B-Instruct"
+# Default LLM model: Qwen2.5-Coder-32B-Instruct on Cloudflare Workers AI.
+DEFAULT_LLM_MODEL: str = "@cf/qwen/qwen2.5-coder-32b-instruct"
 
 
 @dataclass(frozen=True)
@@ -100,12 +100,13 @@ class Settings:
     )
     spacy_model: str = field(default_factory=lambda: os.getenv("SPACY_MODEL", "en_core_web_sm"))
 
-    # --- LLM via OpenAI-compatible API ---
+    # --- LLM via Cloudflare Workers AI (OpenAI-compatible API) ---
+    # Base URL: https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1
     llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", ""))
     llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
     llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL))
-    # "chat" -> /v1/chat/completions (widest provider support)
-    # "completion" -> /v1/completions (byte-for-byte parity with raw prompt)
+    # Cloudflare Workers AI OpenAI-compatible API exposes /chat/completions (not /completions),
+    # so default is "chat". "completion" stays supported for completion-capable providers.
     llm_api_mode: str = field(default_factory=lambda: os.getenv("LLM_API_MODE", "chat").strip().lower())
     llm_timeout_sec: float = field(default_factory=lambda: float(os.getenv("LLM_TIMEOUT_SEC", "60.0")))
     max_new_tokens: int = 256
@@ -116,7 +117,7 @@ class Settings:
     sql_exec_timeout_sec: float = field(default_factory=lambda: float(os.getenv("SQL_EXEC_TIMEOUT_SEC", "5.0")))
     sql_max_rows: int = field(default_factory=lambda: int(os.getenv("SQL_MAX_ROWS", "200")))
 
-    # --- API / Security ---
+    # --- API / Security & Rate Limiting ---
     cors_origins: list[str] = field(
         default_factory=lambda: _env_list(
             "CORS_ORIGINS",
@@ -125,6 +126,17 @@ class Settings:
     )
     rate_limit_per_minute: int = field(
         default_factory=lambda: int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+    )
+    global_generate_per_minute: int = field(
+        default_factory=lambda: int(os.getenv("GLOBAL_GENERATE_PER_MINUTE", "60"))
+    )
+    global_generate_per_day: int = field(
+        default_factory=lambda: int(os.getenv("GLOBAL_GENERATE_PER_DAY", "500"))
+    )
+    # Only set True if this backend sits directly behind a Cloudflare proxy.
+    # On Hugging Face Spaces, keep False so clients cannot spoof CF-Connecting-IP.
+    trust_cf_connecting_ip: bool = field(
+        default_factory=lambda: _env_bool("TRUST_CF_CONNECTING_IP", False)
     )
 
 

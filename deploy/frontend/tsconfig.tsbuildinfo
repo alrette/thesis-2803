@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/databaseselector.tsx","./src/components/erddiagram.tsx","./src/components/header.tsx","./src/components/queryworkspace.tsx","./src/components/resultstable.tsx","./src/components/schemaexplorer.tsx","./src/lib/api.ts","./src/types/api.ts"],"version":"5.9.3"}

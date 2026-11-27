@@ -1,7 +1,8 @@
 """
-Prompt builder, OpenAI-compatible Qwen2.5-Coder-7B client, and SQL cleaner.
+Prompt builder, OpenAI-compatible Cloudflare Workers AI client, and SQL cleaner.
 
-Prompt format and `_clean_sql()` mirror `src/generation/generation.py` directly.
+Prompt format and `clean_sql()` mirror `src/generation/generation.py` directly —
+do not alter the prompt template or cleaning algorithm.
 """
 
 from __future__ import annotations
@@ -24,6 +25,15 @@ _TABLE_PREFIX = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]*\.(?=[a-zA-Z_])")
 _WHITESPACE = re.compile(r"\s+")
 
 
+class LLMServiceError(Exception):
+    """Error raised for user-facing LLM failures without leaking raw provider traces."""
+
+    def __init__(self, user_message: str, status_code: int = 502) -> None:
+        super().__init__(user_message)
+        self.user_message = user_message
+        self.status_code = status_code
+
+
 def build_prompt(
     question: str,
     schema_context: str,
@@ -34,7 +44,7 @@ def build_prompt(
     Exact prompt template from `src/generation/generation.py`.
 
     In `chat` mode (OpenAI `/v1/chat/completions`), omit the trailing ```` ```sql\n ````
-    prefix because the assistant starts a fresh turn; `_clean_sql()` strips fences either way.
+    prefix because the assistant starts a fresh turn; `clean_sql()` strips fences either way.
     """
     base = (
         "### Task\n"
@@ -104,6 +114,33 @@ def clean_sql(sql: str) -> str:
     return _WHITESPACE.sub(" ", sql).strip()
 
 
+def classify_llm_exception(exc: Exception) -> LLMServiceError:
+    """Map provider/SDK exceptions to short, user-friendly messages."""
+    if isinstance(exc, LLMServiceError):
+        return exc
+
+    status = getattr(exc, "status_code", None)
+    name = type(exc).__name__.lower()
+    msg = str(exc).lower()
+
+    if isinstance(exc, TimeoutError) or "timeout" in name or "timed out" in msg:
+        return LLMServiceError(
+            "Permintaan ke model melebihi batas waktu, coba lagi sebentar.",
+            status_code=504,
+        )
+
+    if status == 429 or "ratelimit" in name or "rate limit" in msg or "quota" in msg:
+        return LLMServiceError(
+            "Kuota atau batas permintaan ke model sedang penuh, coba lagi beberapa saat lagi.",
+            status_code=429,
+        )
+
+    return LLMServiceError(
+        "Model sedang tidak bisa dihubungi, coba lagi sebentar.",
+        status_code=502,
+    )
+
+
 @dataclass
 class GenerationOutput:
     sql: str
@@ -114,7 +151,7 @@ class GenerationOutput:
 
 
 class LLMClient:
-    """Thin OpenAI-compatible client for Qwen2.5-Coder-7B-Instruct."""
+    """Thin OpenAI-compatible client (default: Cloudflare Workers AI Qwen2.5-Coder-32B-Instruct)."""
 
     def __init__(self, settings: Settings) -> None:
         self.cfg = settings
@@ -139,6 +176,17 @@ class LLMClient:
     def is_configured(self) -> bool:
         return self._client is not None
 
+    def _call_chat(self, prompt: str, stop: list[str] | None):
+        kwargs = {
+            "model": self.cfg.llm_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": self.cfg.max_new_tokens,
+            "temperature": self.cfg.temperature,
+        }
+        if stop:
+            kwargs["stop"] = stop
+        return self._client.chat.completions.create(**kwargs)
+
     def generate_sql(
         self,
         question: str,
@@ -146,9 +194,9 @@ class LLMClient:
         few_shot_block: str = "",
     ) -> GenerationOutput:
         if self._client is None:
-            raise RuntimeError(
-                "LLM API is not configured. Set LLM_API_KEY (and LLM_BASE_URL / LLM_MODEL) "
-                "in your environment or Hugging Face Space Secrets."
+            raise LLMServiceError(
+                "Layanan model belum aktif di server saat ini.",
+                status_code=503,
             )
 
         is_completion = self.cfg.llm_api_mode == "completion"
@@ -158,29 +206,48 @@ class LLMClient:
             few_shot_block=few_shot_block,
             include_sql_fence_prefix=is_completion,
         )
+        stop = list(self.cfg.sql_stop_strings) or None
 
-        if is_completion:
-            resp = self._client.completions.create(
-                model=self.cfg.llm_model,
-                prompt=prompt,
-                max_tokens=self.cfg.max_new_tokens,
-                temperature=self.cfg.temperature,
-                stop=list(self.cfg.sql_stop_strings) or None,
-            )
-            raw = resp.choices[0].text or ""
-        else:
-            resp = self._client.chat.completions.create(
-                model=self.cfg.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.cfg.max_new_tokens,
-                temperature=self.cfg.temperature,
-            )
-            raw = resp.choices[0].message.content or ""
+        try:
+            if is_completion:
+                resp = self._client.completions.create(
+                    model=self.cfg.llm_model,
+                    prompt=prompt,
+                    max_tokens=self.cfg.max_new_tokens,
+                    temperature=self.cfg.temperature,
+                    stop=stop,
+                )
+                raw = resp.choices[0].text or ""
+            else:
+                try:
+                    resp = self._call_chat(prompt, stop=stop)
+                    raw = resp.choices[0].message.content or ""
+                except Exception as chat_exc:  # noqa: BLE001
+                    # If the provider rejects `stop` on chat completions (HTTP 400),
+                    # retry once without `stop`.
+                    if stop and getattr(chat_exc, "status_code", None) == 400:
+                        logger.info("Provider rejected stop param in chat mode; retrying without stop")
+                        resp = self._call_chat(prompt, stop=None)
+                        raw = resp.choices[0].message.content or ""
+                    else:
+                        raise
+
+                # If the assistant started its chat reply with an opening ```sql fence,
+                # stop=["```"] halts at token 0 and yields empty text; retry once without stop.
+                if stop and not raw.strip():
+                    logger.info("Empty chat output with stop=%s (likely opening fence); retrying without stop", stop)
+                    resp = self._call_chat(prompt, stop=None)
+                    raw = resp.choices[0].message.content or ""
+        except Exception as exc:  # noqa: BLE001
+            raise classify_llm_exception(exc) from exc
 
         usage = getattr(resp, "usage", None)
         cleaned = clean_sql(raw)
         if not cleaned:
-            raise RuntimeError("Model returned an empty SQL response.")
+            raise LLMServiceError(
+                "Model tidak menghasilkan query SQL yang valid, coba lagi sebentar.",
+                status_code=502,
+            )
 
         return GenerationOutput(
             sql=cleaned,

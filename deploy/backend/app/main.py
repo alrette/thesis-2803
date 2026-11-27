@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app.llm_client import LLMClient
+from app.llm_client import LLMClient, LLMServiceError, classify_llm_exception
 from app.retriever import GraphRAG1StageRetriever
 from app.schema_graph import build_table_graph, export_db_erd, load_spider_schema
 from app.settings import Settings, get_settings
@@ -39,29 +39,33 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Simple in-memory per-IP sliding-window rate limiter
+# In-memory sliding-window rate limiter (per-IP and global)
 # ---------------------------------------------------------------------------
 
 class RateLimiter:
-    def __init__(self, limit_per_minute: int) -> None:
-        self.limit = limit_per_minute
+    def __init__(
+        self,
+        limit: int,
+        window_seconds: float = 60.0,
+        detail: str = "Terlalu banyak permintaan, coba lagi sebentar.",
+    ) -> None:
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.detail = detail
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def check(self, client_ip: str) -> None:
+    def check(self, key: str) -> None:
         if self.limit <= 0:
             return
         now = time.monotonic()
-        cutoff = now - 60.0
+        cutoff = now - self.window_seconds
         with self._lock:
-            q = self._hits[client_ip]
+            q = self._hits[key]
             while q and q[0] < cutoff:
                 q.popleft()
             if len(q) >= self.limit:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many requests. Please wait a moment and try again.",
-                )
+                raise HTTPException(status_code=429, detail=self.detail)
             q.append(now)
 
 
@@ -72,7 +76,21 @@ class RateLimiter:
 class AppState:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
+        self.rate_limiter = RateLimiter(
+            limit=settings.rate_limit_per_minute,
+            window_seconds=60.0,
+            detail="Terlalu banyak permintaan dari perangkat Anda, coba lagi dalam satu menit.",
+        )
+        self.global_generate_minute_limiter = RateLimiter(
+            limit=settings.global_generate_per_minute,
+            window_seconds=60.0,
+            detail="Layanan sedang menerima banyak permintaan, coba lagi dalam satu menit.",
+        )
+        self.global_generate_day_limiter = RateLimiter(
+            limit=settings.global_generate_per_day,
+            window_seconds=86400.0,
+            detail="Batas kuota harian layanan demo telah tercapai, silakan coba lagi besok.",
+        )
         self.catalog: dict[str, dict[str, Any]] = {}
         self.erds: dict[str, dict[str, Any]] = {}
         self.db_paths: dict[str, Path] = {}
@@ -218,10 +236,26 @@ def _require_ready() -> AppState:
     return state
 
 
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+def _client_ip(request: Request, trust_cf_connecting_ip: bool = False) -> str:
+    """
+    Extract client IP from the trusted reverse-proxy hop rather than spoofable
+    client-supplied values:
+      - Ignore `cf-connecting-ip` unless the backend explicitly sits behind Cloudflare.
+      - Use the RIGHTMOST non-empty entry in `x-forwarded-for`, which is the hop
+        appended by the trusted proxy (e.g. Hugging Face Spaces), not the leftmost
+        entry that a client can forge freely.
+    """
+    if trust_cf_connecting_ip:
+        cf_ip = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf_ip:
+            return cf_ip
+
+    xff = request.headers.get("x-forwarded-for") or ""
+    if xff:
+        hops = [part.strip() for part in xff.split(",") if part.strip()]
+        if hops:
+            return hops[-1]
+
     return request.client.host if request.client else "unknown"
 
 
@@ -241,6 +275,7 @@ def health() -> dict[str, Any]:
         "pipeline": "graphrag-1stage-skeleton-fewshot",
         "embedding_model": cfg.embedding_model,
         "llm_model": cfg.llm_model,
+        "llm_api_mode": cfg.llm_api_mode,
         "table_threshold": cfg.table_similarity_threshold,
         "few_shot_k": cfg.few_shot_k,
         "error": s.startup_error if s else None,
@@ -288,7 +323,10 @@ def get_database_detail(db_id: str) -> dict[str, Any]:
 @app.post("/api/generate", response_model=GenerateResponse)
 def generate_sql_endpoint(payload: GenerateRequest, request: Request) -> GenerateResponse:
     s = _require_ready()
-    s.rate_limiter.check(_client_ip(request))
+    ip = _client_ip(request, trust_cf_connecting_ip=s.settings.trust_cf_connecting_ip)
+    s.rate_limiter.check(ip)
+    s.global_generate_minute_limiter.check("global")
+    s.global_generate_day_limiter.check("global")
 
     if payload.db_id not in s.catalog:
         raise HTTPException(status_code=404, detail=f"Database '{payload.db_id}' not found.")
@@ -296,7 +334,7 @@ def generate_sql_endpoint(payload: GenerateRequest, request: Request) -> Generat
     if not s.llm.is_configured:
         raise HTTPException(
             status_code=503,
-            detail="LLM API is not configured on the server (missing LLM_API_KEY).",
+            detail="Layanan model belum aktif di server saat ini.",
         )
 
     t0 = time.perf_counter()
@@ -309,9 +347,13 @@ def generate_sql_endpoint(payload: GenerateRequest, request: Request) -> Generat
             schema_context=trace.schema_context,
             few_shot_block=trace.few_shot_block,
         )
+    except LLMServiceError as exc:
+        logger.exception("LLM generation failed (%s)", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=exc.user_message) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.exception("LLM generation failed")
-        raise HTTPException(status_code=502, detail=f"SQL generation failed: {exc}") from exc
+        logger.exception("Unexpected error during LLM generation")
+        err = classify_llm_exception(exc)
+        raise HTTPException(status_code=err.status_code, detail=err.user_message) from exc
 
     t2 = time.perf_counter()
     return GenerateResponse(
@@ -346,7 +388,8 @@ def generate_sql_endpoint(payload: GenerateRequest, request: Request) -> Generat
 @app.post("/api/execute", response_model=ExecuteResponse)
 def execute_sql_endpoint(payload: ExecuteRequest, request: Request) -> ExecuteResponse:
     s = _require_ready()
-    s.rate_limiter.check(_client_ip(request))
+    ip = _client_ip(request, trust_cf_connecting_ip=s.settings.trust_cf_connecting_ip)
+    s.rate_limiter.check(ip)
 
     db_path = s.db_paths.get(payload.db_id)
     if db_path is None:

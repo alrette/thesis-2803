@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  AlertCircle,
   Check,
   ChevronDown,
   ChevronUp,
@@ -23,6 +24,8 @@ interface QueryWorkspaceProps {
   onSqlDraftChange: (value: string) => void;
   onExecute: () => void;
   executing: boolean;
+  llmModel: string | null;
+  fewShotK: number | null;
 }
 
 function difficultyBadge(level: string): string {
@@ -44,9 +47,19 @@ export function QueryWorkspace({
   onSqlDraftChange,
   onExecute,
   executing,
+  llmModel,
+  fewShotK,
 }: QueryWorkspaceProps) {
   const [copied, setCopied] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+
+  const activeModelName = (generation?.model || llmModel || "").split("/").pop() || "LLM";
+  const fewShotSummary =
+    fewShotK === null
+      ? ""
+      : fewShotK > 0
+        ? ` → Skeleton Few-Shot (k=${fewShotK})`
+        : " → Zero-Shot (k=0)";
 
   const handleCopy = async () => {
     if (!sqlDraft.trim()) return;
@@ -114,8 +127,8 @@ export function QueryWorkspace({
         />
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-500">
-            Pipeline: 1-Stage Table Graph Retrieval → Skeleton Few-Shot → Qwen2.5-Coder-7B
+          <p className="text-xs text-slate-500" title={generation?.model || llmModel || undefined}>
+            Pipeline: 1-Stage Table Graph Retrieval{fewShotSummary} → {activeModelName}
           </p>
           <button
             type="button"
@@ -138,8 +151,15 @@ export function QueryWorkspace({
         </div>
 
         {generateError && (
-          <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
-            {generateError}
+          <div
+            role="alert"
+            className="mt-3 flex items-start gap-2.5 rounded-lg border border-rose-500/35 bg-rose-950/40 px-3.5 py-2.5 text-rose-200"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+            <div className="text-xs leading-relaxed">
+              <p className="font-semibold text-rose-100">Gagal menghasilkan SQL</p>
+              <p className="mt-0.5 text-rose-200/90">{generateError}</p>
+            </div>
           </div>
         )}
       </div>
@@ -227,8 +247,10 @@ export function QueryWorkspace({
                       </strong>
                     </>
                   )}{" "}
-                  • {generation.few_shot_examples.length} few-shot examples (retrieval{" "}
-                  {generation.retrieval_ms} ms)
+                  {generation.few_shot_k > 0
+                    ? `• ${generation.few_shot_examples.length} few-shot examples`
+                    : "• zero-shot (k=0)"}{" "}
+                  (retrieval {generation.retrieval_ms} ms)
                 </span>
                 {traceOpen ? (
                   <ChevronUp className="h-4 w-4" />
