@@ -92,12 +92,15 @@ Open `http://localhost:5173`. (Defaults to `VITE_API_BASE_URL=http://localhost:7
 
 ---
 
-## 4. Deploy Backend to Hugging Face Spaces (Free CPU)
+## 4. Deploy Backend to Hugging Face Spaces (Gradio SDK, ZeroGPU, free)
+
+Docker Spaces and CPU Basic now need a paid Hugging Face plan; a Gradio Space on ZeroGPU is still free.
+`gradio_app.py` runs the same FastAPI API (embeddings on CPU; no request uses the GPU).
 
 1. Create a new Space on Hugging Face:
-   - **SDK**: `Docker`
-   - **Hardware**: `CPU basic · 2 vCPU · 16 GB` (Free)
-2. Upload/push the contents of `deploy/backend/` (including `Dockerfile`, `requirements.txt`, `README.md`, `app/`, and your generated `data/` folder — **never** upload `.env` or `.venv/`).
+   - **SDK**: `Gradio` (Blank template)
+   - **Hardware**: `ZeroGPU` (Free)
+2. Upload/push the contents of `deploy/backend/` (`README.md` with its front matter, `gradio_app.py`, `requirements.txt`, `app/`, and your generated `data/` folder — **never** upload `.env` or `.venv/`).
    - Track `*.sqlite` (and `*.npy` if using `FEW_SHOT_K > 0`) with Git LFS in the HF Space repo.
 3. In the Space's **Settings → Variables and secrets**, set:
    - **Secret:** `LLM_API_KEY` = `<your-cloudflare-workers-ai-token>`
@@ -110,6 +113,8 @@ Open `http://localhost:5173`. (Defaults to `VITE_API_BASE_URL=http://localhost:7
 4. Verify `https://<your-user>-<your-space>.hf.space/health` returns `"ready": true` and `"llm_configured": true`.
 
 > **Tip:** Free HF Spaces sleep after 48 hours of inactivity (~20–30s cold wake). Hit `/health` once right before starting a user-evaluation session.
+>
+> **Run locally the same way:** `pip install gradio spaces` then `python gradio_app.py` (or `uvicorn app.main:app --port 7860` without Gradio).
 
 ---
 

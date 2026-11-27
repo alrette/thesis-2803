@@ -3,14 +3,20 @@ title: GraphRAG 1-Stage Text-to-SQL API
 emoji: 🕸️
 colorFrom: indigo
 colorTo: green
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 6.32.0
+app_file: gradio_app.py
+python_version: "3.12"
 pinned: false
 ---
 
 # GraphRAG 1-Stage + Skeleton Few-Shot API
 
 FastAPI backend powering the GraphRAG Text-to-SQL user evaluation workbench.
+
+Runs as a Gradio Space on ZeroGPU (the free tier for new compute Spaces): `gradio_app.py` serves the
+same API as `app.main` plus a status page at `/`. The `Dockerfile` is kept for hosts that run containers;
+to use it on Hugging Face, set `sdk: docker` and `app_port: 7860` above instead (needs a paid plan).
 
 ## Required Hugging Face Space Secrets
 
