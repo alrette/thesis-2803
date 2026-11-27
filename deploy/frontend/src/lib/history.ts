@@ -1,8 +1,10 @@
-import type { ChatMessage, Chats } from "../types/chat";
+import type { ChatMessage, Conversation, Conversations } from "../types/chat";
 
-const KEY = "chats:v1";
+const KEY = "conversations:v2";
+const LEGACY_KEY = "chats:v1";
 // Keeps localStorage well under its ~5 MB quota even with long sessions.
-const MAX_MESSAGES_PER_DB = 60;
+const MAX_CONVERSATIONS = 80;
+const MAX_MESSAGES_PER_CONVERSATION = 60;
 
 export function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -22,35 +24,75 @@ function forStorage(m: ChatMessage): ChatMessage {
   };
 }
 
-export function loadChats(): Chats {
+const isMessage = (m: unknown): m is ChatMessage =>
+  !!m &&
+  typeof m === "object" &&
+  typeof (m as ChatMessage).id === "string" &&
+  ((m as ChatMessage).role === "user" || (m as ChatMessage).role === "assistant");
+
+function readJson(key: string): unknown {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return {};
-    const out: Chats = {};
-    for (const [db, msgs] of Object.entries(parsed as Record<string, unknown>)) {
-      if (Array.isArray(msgs)) {
-        out[db] = msgs.filter(
-          (m): m is ChatMessage =>
-            !!m && typeof m === "object" && typeof m.id === "string" && (m.role === "user" || m.role === "assistant")
-        );
-      }
-    }
-    return out;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-export function saveChats(chats: Chats): void {
-  try {
-    const trimmed: Chats = {};
-    for (const [db, msgs] of Object.entries(chats)) {
-      if (msgs.length) trimmed[db] = msgs.slice(-MAX_MESSAGES_PER_DB).map(forStorage);
+/* The first version stored one conversation per database; each becomes its own conversation. */
+function fromLegacy(parsed: unknown): Conversations {
+  const out: Conversations = {};
+  if (!parsed || typeof parsed !== "object") return out;
+  for (const [dbId, msgs] of Object.entries(parsed as Record<string, unknown>)) {
+    const messages = Array.isArray(msgs) ? msgs.filter(isMessage) : [];
+    if (!messages.length) continue;
+    const id = newId();
+    out[id] = {
+      id,
+      dbId,
+      createdAt: messages[0].createdAt ?? Date.now(),
+      updatedAt: messages[messages.length - 1].createdAt ?? Date.now(),
+      messages,
+    };
+  }
+  return out;
+}
+
+export function loadConversations(): Conversations {
+  const parsed = readJson(KEY);
+  if (!parsed || typeof parsed !== "object") return fromLegacy(readJson(LEGACY_KEY));
+  const out: Conversations = {};
+  for (const c of Object.values(parsed as Record<string, unknown>)) {
+    const conv = c as Conversation;
+    if (conv && typeof conv.id === "string" && typeof conv.dbId === "string" && Array.isArray(conv.messages)) {
+      out[conv.id] = { ...conv, messages: conv.messages.filter(isMessage) };
     }
-    localStorage.setItem(KEY, JSON.stringify(trimmed));
+  }
+  return out;
+}
+
+export function saveConversations(conversations: Conversations): void {
+  try {
+    const kept = Object.values(conversations)
+      .filter((c) => c.messages.length > 0)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_CONVERSATIONS);
+    const out: Record<string, Conversation> = {};
+    for (const c of kept) {
+      out[c.id] = { ...c, messages: c.messages.slice(-MAX_MESSAGES_PER_CONVERSATION).map(forStorage) };
+    }
+    localStorage.setItem(KEY, JSON.stringify(out));
+    localStorage.removeItem(LEGACY_KEY);
   } catch {
     // Storage full or blocked: history simply won't survive a reload.
   }
+}
+
+/* Most recent conversation for a database, or null when it has none. */
+export function latestConversation(conversations: Conversations, dbId: string): Conversation | null {
+  let best: Conversation | null = null;
+  for (const c of Object.values(conversations)) {
+    if (c.dbId === dbId && c.messages.length > 0 && (!best || c.updatedAt > best.updatedAt)) best = c;
+  }
+  return best;
 }

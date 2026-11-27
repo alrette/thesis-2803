@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { DatabaseSummary } from "../types/api";
-import type { AssistantMessage, Chats } from "../types/chat";
+import type { Conversation, Conversations, UserMessage } from "../types/chat";
 import { IconClose } from "./icons";
 
 interface HistoryPanelProps {
   open: boolean;
   onClose: () => void;
-  chats: Chats;
+  conversations: Conversations;
   databases: DatabaseSummary[];
   currentDbId: string | null;
-  onOpenEntry: (dbId: string, messageId: string) => void;
+  activeId: string | null;
+  onOpen: (conversation: Conversation) => void;
+  onDelete: (conversationId: string) => void;
   onClear: () => void;
 }
 
@@ -21,13 +23,21 @@ function when(ts: number): string {
   return d.toDateString() === new Date().toDateString() ? timeFmt.format(d) : dayFmt.format(d);
 }
 
-export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onOpenEntry, onClear }: HistoryPanelProps) {
-  const [confirming, setConfirming] = useState(false);
+function summary(c: Conversation): { title: string; count: number } {
+  const questions = c.messages.filter((m): m is UserMessage => m.role === "user");
+  return { title: questions[0]?.text ?? "Untitled", count: questions.length };
+}
+
+export function HistoryPanel(props: HistoryPanelProps) {
+  const { open, onClose, conversations, databases, currentDbId, activeId } = props;
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) {
-      setConfirming(false);
+      setConfirmingClear(false);
+      setConfirmingDelete(null);
       return;
     }
     closeRef.current?.focus();
@@ -37,14 +47,15 @@ export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onO
   }, [open, onClose]);
 
   const names = new Map(databases.map((d) => [d.db_id, d.display_name]));
-  const groups = Object.entries(chats)
-    .map(([db, msgs]) => ({
-      db,
-      entries: msgs.filter((m): m is AssistantMessage => m.role === "assistant").reverse(),
-    }))
-    .filter((g) => g.entries.length > 0)
-    .sort((a, b) => (a.db === currentDbId ? -1 : b.db === currentDbId ? 1 : b.entries[0].createdAt - a.entries[0].createdAt));
-  const total = groups.reduce((n, g) => n + g.entries.length, 0);
+  const byDb = new Map<string, Conversation[]>();
+  for (const c of Object.values(conversations)) {
+    if (!c.messages.length) continue;
+    byDb.set(c.dbId, [...(byDb.get(c.dbId) ?? []), c]);
+  }
+  const groups = [...byDb.entries()]
+    .map(([db, list]) => ({ db, list: list.sort((a, b) => b.updatedAt - a.updatedAt) }))
+    .sort((a, b) => (a.db === currentDbId ? -1 : b.db === currentDbId ? 1 : b.list[0].updatedAt - a.list[0].updatedAt));
+  const total = groups.reduce((n, g) => n + g.list.length, 0);
 
   return (
     <div className={`fixed inset-0 z-30 ${open ? "" : "pointer-events-none"}`} inert={!open}>
@@ -54,7 +65,7 @@ export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onO
       />
       <aside
         role="dialog"
-        aria-label="Question history"
+        aria-label="Conversation history"
         className={`absolute inset-y-0 right-0 flex w-[min(360px,92vw)] flex-col border-l border-line bg-bg transition-transform duration-[260ms] ease-[var(--ease-out-soft)] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
@@ -78,7 +89,7 @@ export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onO
         <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {total === 0 ? (
             <p className="px-2 pt-6 text-[13.5px] text-muted">
-              Nothing here yet. Questions you ask are listed here, grouped by database, so you can jump back to them.
+              No conversations yet. Each chat you start is listed here, grouped by database, so you can pick it up again.
             </p>
           ) : (
             groups.map((g) => (
@@ -88,24 +99,45 @@ export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onO
                   {!names.has(g.db) && <span className="text-faint"> (no longer available)</span>}
                 </h3>
                 <ul>
-                  {g.entries.map((m) => (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                                    disabled={!names.has(g.db)}
-                        onClick={() => onOpenEntry(g.db, m.id)}
-                        className="group w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-sunken disabled:opacity-50"
-                      >
-                        <span className="flex items-baseline justify-between gap-3">
-                          <span className="line-clamp-2 text-[13.5px] text-ink group-hover:text-accent">{m.question}</span>
-                          <span className="shrink-0 font-mono text-[11px] text-faint">{when(m.createdAt)}</span>
-                        </span>
-                        <span className="mt-0.5 block truncate font-mono text-[11.5px] text-faint">
-                          {m.status === "done" ? m.sql.replace(/\s+/g, " ") : m.status === "error" ? "No SQL, the request failed" : "Generating…"}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                  {g.list.map((c) => {
+                    const { title, count } = summary(c);
+                    const active = c.id === activeId;
+                    const confirming = confirmingDelete === c.id;
+                    return (
+                      <li key={c.id} className={`group relative rounded-md ${active ? "bg-sunken" : ""}`}>
+                        <button
+                          type="button"
+                          disabled={!names.has(g.db)}
+                          onClick={() => props.onOpen(c)}
+                          aria-current={active ? "true" : undefined}
+                          className="w-full rounded-md py-2 pr-9 pl-2 text-left transition-colors hover:bg-sunken disabled:opacity-50"
+                        >
+                          <span className="line-clamp-2 text-[13.5px] text-ink group-hover:text-accent">{title}</span>
+                          <span className="mt-0.5 block text-[11.5px] text-faint">
+                            {count} {count === 1 ? "question" : "questions"} · {when(c.updatedAt)}
+                            {active && " · open"}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!confirming) return setConfirmingDelete(c.id);
+                            props.onDelete(c.id);
+                            setConfirmingDelete(null);
+                          }}
+                          onBlur={() => setConfirmingDelete(null)}
+                          aria-label={confirming ? "Confirm delete" : `Delete “${title}”`}
+                          className={`absolute top-1.5 right-1.5 rounded-md px-1.5 py-1 text-[12px] transition-opacity focus:opacity-100 ${
+                            confirming
+                              ? "font-medium text-danger opacity-100"
+                              : "text-faint opacity-0 group-hover:opacity-100 hover:text-ink [@media(hover:none)]:opacity-100"
+                          }`}
+                        >
+                          {confirming ? "Delete?" : <IconClose size={13} />}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))
@@ -116,16 +148,15 @@ export function HistoryPanel({ open, onClose, chats, databases, currentDbId, onO
           <footer className="shrink-0 border-t border-line px-5 py-3">
             <button
               type="button"
-                onClick={() => {
-                if (confirming) {
-                  onClear();
-                  setConfirming(false);
-                } else setConfirming(true);
+              onClick={() => {
+                if (!confirmingClear) return setConfirmingClear(true);
+                props.onClear();
+                setConfirmingClear(false);
               }}
-              onBlur={() => setConfirming(false)}
-              className={`text-[13px] transition-colors ${confirming ? "font-medium text-danger" : "text-muted hover:text-ink"}`}
+              onBlur={() => setConfirmingClear(false)}
+              className={`text-[13px] transition-colors ${confirmingClear ? "font-medium text-danger" : "text-muted hover:text-ink"}`}
             >
-              {confirming ? `Click again to delete all ${total} questions` : "Clear history"}
+              {confirmingClear ? `Click again to delete all ${total} conversations` : "Clear history"}
             </button>
           </footer>
         )}

@@ -24,4 +24,12 @@ export interface AssistantMessage {
 
 export type ChatMessage = UserMessage | AssistantMessage;
 
-export type Chats = Record<string, ChatMessage[]>;
+export interface Conversation {
+  id: string;
+  dbId: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessage[];
+}
+
+export type Conversations = Record<string, Conversation>;

@@ -6,11 +6,11 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { IconClose, IconHistory, IconMenu, IconPlus } from "./components/icons";
 import { Sidebar } from "./components/Sidebar";
 import { executeSql, fetchDatabaseDetail, fetchDatabases, fetchHealth, generateSql } from "./lib/api";
-import { loadChats, newId, saveChats } from "./lib/history";
+import { latestConversation, loadConversations, newId, saveConversations } from "./lib/history";
 import { formatSql } from "./lib/sql";
 import { useTheme } from "./lib/theme";
 import type { DatabaseDetail, DatabaseSummary, HealthResponse } from "./types/api";
-import type { AssistantMessage, Chats } from "./types/chat";
+import type { AssistantMessage, ChatMessage, Conversation, Conversations } from "./types/chat";
 
 const EMPTY: string[] = [];
 const NO_SCORES: Record<string, number> = {};
@@ -30,18 +30,18 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  // One conversation and one unsent draft per database; conversations also persist in localStorage.
-  const [chats, setChats] = useState<Chats>(loadChats);
+  // Any number of conversations per database, persisted in localStorage. activeByDb holds the open one:
+  // a missing entry falls back to the latest conversation, null means a fresh "New chat".
+  const [conversations, setConversations] = useState<Conversations>(loadConversations);
+  const [activeByDb, setActiveByDb] = useState<Record<string, string | null>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const [erdOpen, setErdOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [jumpTo, setJumpTo] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => saveChats(chats), [chats]);
+  useEffect(() => saveConversations(conversations), [conversations]);
 
   const selectDb = useCallback(
     async (id: string) => {
@@ -74,14 +74,20 @@ export default function App() {
   useEffect(() => {
     if (dbId || databases.length === 0) return;
     const known = new Set(databases.map((d) => d.db_id));
-    const recent = Object.entries(chats)
-      .filter(([db, msgs]) => known.has(db) && msgs.length > 0)
-      .sort((a, b) => b[1][b[1].length - 1].createdAt - a[1][a[1].length - 1].createdAt)[0]?.[0];
+    const recent = Object.values(conversations)
+      .filter((c) => known.has(c.dbId) && c.messages.length > 0)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.dbId;
     void selectDb(recent ?? databases[0].db_id);
-  }, [databases, dbId, selectDb, chats]);
+  }, [databases, dbId, selectDb, conversations]);
 
   const detail = dbId ? details[dbId] ?? null : null;
-  const messages = useMemo(() => (dbId ? chats[dbId] ?? [] : []), [chats, dbId]);
+  const conversation: Conversation | null = useMemo(() => {
+    if (!dbId) return null;
+    const chosen = activeByDb[dbId];
+    if (chosen === null) return null;
+    return (chosen && conversations[chosen]) || latestConversation(conversations, dbId);
+  }, [dbId, activeByDb, conversations]);
+  const messages: ChatMessage[] = conversation?.messages ?? [];
   const busy = messages.some((m) => m.role === "assistant" && m.status === "pending");
 
   const latest = useMemo(() => {
@@ -92,83 +98,74 @@ export default function App() {
     return null;
   }, [messages]);
 
-  // New messages scroll into view; a pending history jump takes precedence (its effect runs after this one).
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, busy]);
+  }, [messages.length, busy, conversation?.id]);
 
-  // After picking a history entry, scroll to that answer once its database is on screen and flash it.
-  useEffect(() => {
-    if (!jumpTo) return;
-    const el = document.getElementById(`msg-${jumpTo}`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.remove("flash");
-    void el.offsetWidth;
-    el.classList.add("flash");
-    setJumpTo(null);
-  }, [jumpTo, messages]);
-
-  const openEntry = (db: string, messageId: string) => {
+  const openConversation = (c: Conversation) => {
     setHistoryOpen(false);
-    if (db !== dbId) void selectDb(db);
-    setJumpTo(messageId);
+    setActiveByDb((prev) => ({ ...prev, [c.dbId]: c.id }));
+    if (c.dbId !== dbId) void selectDb(c.dbId);
   };
 
-  const patch = (db: string, id: string, change: Partial<AssistantMessage>) =>
-    setChats((prev) => ({
-      ...prev,
-      [db]: (prev[db] ?? []).map((m) => (m.id === id && m.role === "assistant" ? { ...m, ...change } : m)),
-    }));
+  const newChat = () => dbId && setActiveByDb((prev) => ({ ...prev, [dbId]: null }));
 
-  const generate = async (db: string, id: string, question: string) => {
+  const deleteConversation = (id: string) => {
+    setConversations(({ [id]: _gone, ...rest }) => rest);
+    setActiveByDb((prev) => Object.fromEntries(Object.entries(prev).map(([db, c]) => [db, c === id ? null : c])));
+  };
+
+  // Answers are patched by conversation id, so one that finishes after "New chat" still lands in its own thread.
+  const patch = (convId: string, id: string, change: Partial<AssistantMessage>) =>
+    setConversations((prev) => {
+      const c = prev[convId];
+      if (!c) return prev;
+      const messages = c.messages.map((m) => (m.id === id && m.role === "assistant" ? { ...m, ...change } : m));
+      return { ...prev, [convId]: { ...c, messages } };
+    });
+
+  const generate = async (convId: string, db: string, id: string, question: string) => {
     try {
       const g = await generateSql(db, question);
-      patch(db, id, { status: "done", generation: g, sql: formatSql(g.sql) });
+      patch(convId, id, { status: "done", generation: g, sql: formatSql(g.sql) });
     } catch (err) {
-      patch(db, id, { status: "error", error: errorText(err, "The model did not answer. Try again in a moment.") });
+      patch(convId, id, { status: "error", error: errorText(err, "The model did not answer. Try again in a moment.") });
     }
   };
 
   const send = (text: string) => {
     if (!dbId) return;
     const db = dbId;
+    const now = Date.now();
+    const convId = conversation?.id ?? newId();
     const answerId = newId();
-    setChats((prev) => ({
-      ...prev,
-      [db]: [
-        ...(prev[db] ?? []),
-        { id: newId(), role: "user", text, createdAt: Date.now() },
-        {
-          id: answerId,
-          role: "assistant",
-          question: text,
-          createdAt: Date.now(),
-          status: "pending",
-          sql: "",
-          editing: false,
-          executing: false,
-        },
-      ],
-    }));
-    void generate(db, answerId, text);
+    const added: ChatMessage[] = [
+      { id: newId(), role: "user", text, createdAt: now },
+      { id: answerId, role: "assistant", question: text, createdAt: now, status: "pending", sql: "", editing: false, executing: false },
+    ];
+    setConversations((prev) => {
+      const base = prev[convId] ?? { id: convId, dbId: db, createdAt: now, updatedAt: now, messages: [] };
+      return { ...prev, [convId]: { ...base, updatedAt: now, messages: [...base.messages, ...added] } };
+    });
+    setActiveByDb((prev) => ({ ...prev, [db]: convId }));
+    void generate(convId, db, answerId, text);
   };
 
   const retry = (msg: AssistantMessage) => {
-    if (!dbId) return;
-    patch(dbId, msg.id, { status: "pending", error: undefined });
-    void generate(dbId, msg.id, msg.question);
+    if (!dbId || !conversation) return;
+    patch(conversation.id, msg.id, { status: "pending", error: undefined });
+    void generate(conversation.id, dbId, msg.id, msg.question);
   };
 
   const run = async (msg: AssistantMessage) => {
-    if (!dbId) return;
-    const db = dbId;
-    patch(db, msg.id, { executing: true, execError: undefined });
+    if (!dbId || !conversation) return;
+    const convId = conversation.id;
+    patch(convId, msg.id, { executing: true, execError: undefined });
     try {
-      const result = await executeSql(db, msg.sql.trim());
-      patch(db, msg.id, { executing: false, result });
+      const result = await executeSql(dbId, msg.sql.trim());
+      patch(convId, msg.id, { executing: false, result });
     } catch (err) {
-      patch(db, msg.id, { executing: false, result: undefined, execError: errorText(err, "The query could not run.") });
+      patch(convId, msg.id, { executing: false, result: undefined, execError: errorText(err, "The query could not run.") });
     }
   };
 
@@ -248,22 +245,14 @@ export default function App() {
             <IconHistory size={14} />
             History
           </button>
-          {messages.length > 0 && dbId && (
+          {messages.length > 0 && (
             <button
               type="button"
-              disabled={busy}
-              onClick={() => {
-                if (!confirmClear) return setConfirmClear(true);
-                setChats((prev) => ({ ...prev, [dbId]: [] }));
-                setConfirmClear(false);
-              }}
-              onBlur={() => setConfirmClear(false)}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors hover:bg-sunken disabled:opacity-50 ${
-                confirmClear ? "font-medium text-danger" : "text-muted hover:text-ink"
-              }`}
+              onClick={newChat}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink"
             >
-              <IconPlus size={13} className="rotate-45" />
-              {confirmClear ? "Click again to clear" : "Clear chat"}
+              <IconPlus size={13} />
+              New chat
             </button>
           )}
         </header>
@@ -273,20 +262,20 @@ export default function App() {
             {messages.length === 0 ? (
               <EmptyState detail={detail} loading={detailLoading} onPick={(q) => dbId && setDrafts((d) => ({ ...d, [dbId]: q }))} />
             ) : (
-              <ol className="space-y-7 pt-8 pb-6">
+              <ol key={conversation?.id} className="space-y-7 pt-8 pb-6">
                 {messages.map((m) =>
                   m.role === "user" ? (
-                    <li key={m.id} id={`msg-${m.id}`} className="anim-rise flex justify-end">
+                    <li key={m.id} className="anim-rise flex justify-end">
                       <p className="max-w-[85%] rounded-lg bg-sunken px-3.5 py-2 text-[15px] whitespace-pre-wrap">{m.text}</p>
                     </li>
                   ) : (
-                    <li key={m.id} id={`msg-${m.id}`} className="scroll-mt-24 rounded-md">
+                    <li key={m.id}>
                       <Answer
                         msg={m}
                         onRun={() => void run(m)}
                         onRetry={() => retry(m)}
-                        onSqlChange={(sql) => dbId && patch(dbId, m.id, { sql, result: undefined, execError: undefined })}
-                        onToggleEdit={() => dbId && patch(dbId, m.id, { editing: !m.editing })}
+                        onSqlChange={(sql) => conversation && patch(conversation.id, m.id, { sql, result: undefined, execError: undefined })}
+                        onToggleEdit={() => conversation && patch(conversation.id, m.id, { editing: !m.editing })}
                       />
                     </li>
                   )
@@ -306,6 +295,7 @@ export default function App() {
               onSend={send}
               draft={dbId ? drafts[dbId] ?? "" : ""}
               onDraftChange={(text) => dbId && setDrafts((d) => ({ ...d, [dbId]: text }))}
+              suggestions={detail?.sample_questions ?? []}
             />
           </div>
         </div>
@@ -314,11 +304,16 @@ export default function App() {
       <HistoryPanel
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        chats={chats}
+        conversations={conversations}
         databases={databases}
         currentDbId={dbId}
-        onOpenEntry={openEntry}
-        onClear={() => setChats({})}
+        activeId={conversation?.id ?? null}
+        onOpen={openConversation}
+        onDelete={deleteConversation}
+        onClear={() => {
+          setConversations({});
+          setActiveByDb({});
+        }}
       />
 
       {detail && (

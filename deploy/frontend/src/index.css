@@ -201,17 +201,3 @@
 .react-flow__controls-button:hover {
   background: var(--sunken) !important;
 }
-
-/* Brief outline on the answer a history entry jumped to, so the eye finds it. */
-@keyframes flash-ring {
-  0%,
-  40% {
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-  100% {
-    box-shadow: 0 0 0 2px transparent;
-  }
-}
-.flash {
-  animation: flash-ring 1.4s ease-out;
-}
