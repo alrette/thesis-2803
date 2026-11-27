@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Answer } from "./components/Answer";
 import { Composer } from "./components/Composer";
 import { ErdDialog } from "./components/ErdDialog";
-import { IconClose, IconMenu, IconPlus } from "./components/icons";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { IconClose, IconHistory, IconMenu, IconPlus } from "./components/icons";
 import { Sidebar } from "./components/Sidebar";
 import { executeSql, fetchDatabaseDetail, fetchDatabases, fetchHealth, generateSql } from "./lib/api";
+import { loadChats, newId, saveChats } from "./lib/history";
 import { formatSql } from "./lib/sql";
 import { useTheme } from "./lib/theme";
 import type { DatabaseDetail, DatabaseSummary, HealthResponse } from "./types/api";
-import type { AssistantMessage, ChatMessage } from "./types/chat";
+import type { AssistantMessage, Chats } from "./types/chat";
 
 const EMPTY: string[] = [];
 const NO_SCORES: Record<string, number> = {};
-let nextId = 0;
-const newId = () => `m${++nextId}`;
 
 const errorText = (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback);
 
@@ -30,13 +30,18 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  // One conversation and one unsent draft per database, so switching back and forth loses nothing.
-  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  // One conversation and one unsent draft per database; conversations also persist in localStorage.
+  const [chats, setChats] = useState<Chats>(loadChats);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   const [erdOpen, setErdOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => saveChats(chats), [chats]);
 
   const selectDb = useCallback(
     async (id: string) => {
@@ -65,10 +70,15 @@ export default function App() {
     );
   }, []);
 
-  // Open the first database straight away so the page lands on a usable chat.
+  // Land on the database of the most recent conversation, or the first one, so the page opens on a usable chat.
   useEffect(() => {
-    if (!dbId && databases.length > 0) void selectDb(databases[0].db_id);
-  }, [databases, dbId, selectDb]);
+    if (dbId || databases.length === 0) return;
+    const known = new Set(databases.map((d) => d.db_id));
+    const recent = Object.entries(chats)
+      .filter(([db, msgs]) => known.has(db) && msgs.length > 0)
+      .sort((a, b) => b[1][b[1].length - 1].createdAt - a[1][a[1].length - 1].createdAt)[0]?.[0];
+    void selectDb(recent ?? databases[0].db_id);
+  }, [databases, dbId, selectDb, chats]);
 
   const detail = dbId ? details[dbId] ?? null : null;
   const messages = useMemo(() => (dbId ? chats[dbId] ?? [] : []), [chats, dbId]);
@@ -82,9 +92,28 @@ export default function App() {
     return null;
   }, [messages]);
 
+  // New messages scroll into view; a pending history jump takes precedence (its effect runs after this one).
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, busy]);
+
+  // After picking a history entry, scroll to that answer once its database is on screen and flash it.
+  useEffect(() => {
+    if (!jumpTo) return;
+    const el = document.getElementById(`msg-${jumpTo}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+    setJumpTo(null);
+  }, [jumpTo, messages]);
+
+  const openEntry = (db: string, messageId: string) => {
+    setHistoryOpen(false);
+    if (db !== dbId) void selectDb(db);
+    setJumpTo(messageId);
+  };
 
   const patch = (db: string, id: string, change: Partial<AssistantMessage>) =>
     setChats((prev) => ({
@@ -109,8 +138,17 @@ export default function App() {
       ...prev,
       [db]: [
         ...(prev[db] ?? []),
-        { id: newId(), role: "user", text },
-        { id: answerId, role: "assistant", question: text, status: "pending", sql: "", editing: false, executing: false },
+        { id: newId(), role: "user", text, createdAt: Date.now() },
+        {
+          id: answerId,
+          role: "assistant",
+          question: text,
+          createdAt: Date.now(),
+          status: "pending",
+          sql: "",
+          editing: false,
+          executing: false,
+        },
       ],
     }));
     void generate(db, answerId, text);
@@ -202,15 +240,30 @@ export default function App() {
             <p className="truncate text-[14.5px] font-medium">{detail?.display_name ?? "No database selected"}</p>
             {detail?.description && <p className="truncate text-[12.5px] text-muted">{detail.description}</p>}
           </div>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink"
+          >
+            <IconHistory size={14} />
+            History
+          </button>
           {messages.length > 0 && dbId && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => setChats((prev) => ({ ...prev, [dbId]: [] }))}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink disabled:opacity-50"
+              onClick={() => {
+                if (!confirmClear) return setConfirmClear(true);
+                setChats((prev) => ({ ...prev, [dbId]: [] }));
+                setConfirmClear(false);
+              }}
+              onBlur={() => setConfirmClear(false)}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors hover:bg-sunken disabled:opacity-50 ${
+                confirmClear ? "font-medium text-danger" : "text-muted hover:text-ink"
+              }`}
             >
-              <IconPlus size={13} />
-              New chat
+              <IconPlus size={13} className="rotate-45" />
+              {confirmClear ? "Click again to clear" : "Clear chat"}
             </button>
           )}
         </header>
@@ -223,11 +276,11 @@ export default function App() {
               <ol className="space-y-7 pt-8 pb-6">
                 {messages.map((m) =>
                   m.role === "user" ? (
-                    <li key={m.id} className="anim-rise flex justify-end">
+                    <li key={m.id} id={`msg-${m.id}`} className="anim-rise flex justify-end">
                       <p className="max-w-[85%] rounded-lg bg-sunken px-3.5 py-2 text-[15px] whitespace-pre-wrap">{m.text}</p>
                     </li>
                   ) : (
-                    <li key={m.id}>
+                    <li key={m.id} id={`msg-${m.id}`} className="scroll-mt-24 rounded-md">
                       <Answer
                         msg={m}
                         onRun={() => void run(m)}
@@ -257,6 +310,16 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      <HistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        chats={chats}
+        databases={databases}
+        currentDbId={dbId}
+        onOpenEntry={openEntry}
+        onClear={() => setChats({})}
+      />
 
       {detail && (
         <ErdDialog

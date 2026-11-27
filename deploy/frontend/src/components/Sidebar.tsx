@@ -83,6 +83,7 @@ export function Sidebar(props: SidebarProps) {
         )}
         {detail && !props.detailLoading && (
           <SchemaTree
+            key={detail.db_id}
             detail={detail}
             usedTables={props.usedTables}
             bridgeTables={props.bridgeTables}

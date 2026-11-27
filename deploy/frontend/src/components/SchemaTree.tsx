@@ -14,12 +14,8 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
 
   // Tables picked for the latest answer open up so the reader sees which columns were sent.
   useEffect(() => {
-    if (usedTables.length || bridgeTables.length) {
-      setOpen((prev) => new Set([...prev, ...usedTables, ...bridgeTables]));
-    }
+    setOpen((prev) => new Set([...prev, ...usedTables, ...bridgeTables]));
   }, [usedTables, bridgeTables]);
-
-  useEffect(() => setOpen(new Set()), [detail.db_id]);
 
   const toggle = (name: string) =>
     setOpen((prev) => {
