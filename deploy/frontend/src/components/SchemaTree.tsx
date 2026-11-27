@@ -30,7 +30,7 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
 
   return (
     <div className="font-mono text-[12.5px] leading-[1.7]" role="tree" aria-label={`Schema of ${detail.db_id}`}>
-      <div className="text-muted">{detail.db_id}/</div>
+      <div className="mb-1 font-sans text-[13px] font-semibold tracking-[-0.005em] text-ink">{detail.db_id}</div>
       {detail.tables.map((table, ti) => {
         const lastTable = ti === detail.tables.length - 1;
         const isOpen = open.has(table.name);
@@ -49,10 +49,10 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
                 size={11}
                 className={`mr-1 shrink-0 text-faint transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
               />
-              <span className={isUsed ? "font-medium text-accent" : isBridge ? "text-accent/80" : "text-ink"}>
+              <span className={`text-[13px] font-semibold ${isUsed ? "text-accent" : isBridge ? "text-accent/80" : "text-ink"}`}>
                 {table.name}
               </span>
-              <span className="ml-2 truncate text-[11px] text-faint">
+              <span className="ml-2 truncate text-[11px] text-faint tabular-nums">
                 {isUsed
                   ? `picked${tableScores[table.name] !== undefined ? ` ${tableScores[table.name].toFixed(2)}` : ""}`
                   : isBridge
@@ -70,11 +70,13 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
                         {lastTable ? "   " : "│  "}
                         {lastCol ? "└─ " : "├─ "}
                       </span>
-                      <span className="text-ink/90">{col.name}</span>
-                      <span className="ml-2 text-[11px] text-faint">{col.type}</span>
-                      {col.is_pk && <span className="ml-1.5 text-[11px] text-muted">pk</span>}
+                      <span className={col.is_pk ? "font-medium text-ink" : "text-muted"}>{col.name}</span>
+                      <span className="ml-2 text-[11px] text-faint/80">{col.type}</span>
+                      {col.is_pk && (
+                        <span className="ml-1.5 rounded-[3px] bg-accent-soft px-1 text-[10.5px] font-medium text-accent">pk</span>
+                      )}
                       {col.references && (
-                        <span className="ml-1.5 truncate text-[11px] text-muted">→ {col.references}</span>
+                        <span className="ml-1.5 truncate text-[11px] text-faint">→ {col.references}</span>
                       )}
                     </div>
                   );
