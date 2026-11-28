@@ -29,7 +29,7 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
   const bridged = new Set(bridgeTables);
 
   return (
-    <div className="font-mono text-[12.5px] leading-[1.7]" role="tree" aria-label={`Schema of ${detail.db_id}`}>
+    <div className="font-mono text-[12.5px] leading-[1.7]" data-tour="schema" role="tree" aria-label={`Schema of ${detail.db_id}`}>
       <div className="mb-1 font-sans text-[13px] font-semibold tracking-[-0.005em] text-ink">{detail.db_id}</div>
       {detail.tables.map((table, ti) => {
         const lastTable = ti === detail.tables.length - 1;
@@ -43,6 +43,7 @@ export function SchemaTree({ detail, usedTables, bridgeTables, tableScores }: Sc
               onClick={() => toggle(table.name)}
               className="group flex w-full items-center whitespace-nowrap rounded-[3px] text-left hover:bg-sunken"
               title={table.natural_name}
+              data-picked={isUsed || undefined}
             >
               <span className="whitespace-pre text-faint select-none">{lastTable ? "└─ " : "├─ "}</span>
               <IconChevron
