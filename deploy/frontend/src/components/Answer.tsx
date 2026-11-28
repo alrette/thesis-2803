@@ -10,6 +10,8 @@ interface AnswerProps {
   onRetry: () => void;
   onSqlChange: (sql: string) => void;
   onToggleEdit: () => void;
+  /** Marks Edit and Run as coachmark targets; set on one answer only so each data-tour value is unique. */
+  tourTarget?: boolean;
 }
 
 const TOKEN_CLASS = {
@@ -19,7 +21,7 @@ const TOKEN_CLASS = {
   plain: "",
 } as const;
 
-export function Answer({ msg, onRun, onRetry, onSqlChange, onToggleEdit }: AnswerProps) {
+export function Answer({ msg, onRun, onRetry, onSqlChange, onToggleEdit, tourTarget }: AnswerProps) {
   if (msg.status === "pending") {
     return (
       <div className="anim-fade py-1" role="status">
@@ -51,13 +53,20 @@ export function Answer({ msg, onRun, onRetry, onSqlChange, onToggleEdit }: Answe
           <span className="text-[12px] font-medium text-muted">SQL{msg.editing && ", editing"}</span>
           <div className="flex items-center gap-0.5">
             <CopyButton text={msg.sql} />
-            <ToolButton onClick={onToggleEdit} label={msg.editing ? "Done" : "Edit"} pressed={msg.editing}>
+            <ToolButton
+              onClick={onToggleEdit}
+              label={msg.editing ? "Done" : "Edit"}
+              pressed={msg.editing}
+              emphasis
+              tour={tourTarget ? "edit" : undefined}
+            >
               {msg.editing ? <IconCheck size={14} /> : <IconEdit size={14} />}
             </ToolButton>
             <button
               type="button"
               onClick={onRun}
               disabled={msg.executing || !msg.sql.trim()}
+              data-tour={tourTarget ? "run" : undefined}
               className="ml-1 inline-flex items-center gap-1.5 rounded-[5px] bg-ink px-2.5 py-1 text-[12.5px] font-medium text-bg transition-[opacity,transform] hover:opacity-90 active:scale-[0.97] disabled:opacity-50"
             >
               <IconPlay size={12} />
@@ -183,11 +192,16 @@ function ToolButton({
   onClick,
   label,
   pressed,
+  emphasis,
+  tour,
   children,
 }: {
   onClick: () => void;
   label: string;
   pressed?: boolean;
+  /** A thin border and full-ink text so Edit reads as an action, still quieter than Run. */
+  emphasis?: boolean;
+  tour?: string;
   children: ReactNode;
 }) {
   return (
@@ -195,7 +209,10 @@ function ToolButton({
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
-      className="inline-flex items-center gap-1 rounded-[5px] px-2 py-1 text-[12.5px] text-muted transition-colors hover:bg-sunken hover:text-ink"
+      data-tour={tour}
+      className={`inline-flex items-center gap-1 rounded-[5px] border px-2 py-1 text-[12.5px] transition-colors hover:bg-sunken hover:text-ink ${
+        emphasis ? "border-line-strong text-ink" : "border-transparent text-muted"
+      }`}
     >
       {children}
       {label}

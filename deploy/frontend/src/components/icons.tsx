@@ -105,3 +105,11 @@ export const IconHistory = (p: IconProps) => (
     <path d="M2.8 2.5v2.6h2.6M8 5v3.2l2.2 1.4" />
   </Svg>
 );
+
+export const IconHelp = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M6.3 6.4a1.8 1.8 0 113 1.4c-.8.5-1.3.9-1.3 1.7" />
+    <path d="M8 11.3v.4" />
+  </Svg>
+);

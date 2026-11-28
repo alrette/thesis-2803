@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Answer } from "./components/Answer";
+import { Coachmark } from "./components/Coachmark";
 import { Composer } from "./components/Composer";
 import { ErdDialog } from "./components/ErdDialog";
 import { HistoryPanel } from "./components/HistoryPanel";
-import { IconClose, IconHistory, IconMenu, IconPlus } from "./components/icons";
+import { IconClose, IconHelp, IconHistory, IconMenu, IconPlus } from "./components/icons";
 import { Sidebar } from "./components/Sidebar";
 import { executeSql, fetchDatabaseDetail, fetchDatabases, fetchHealth, generateSql } from "./lib/api";
 import { latestConversation, loadConversations, newId, saveConversations } from "./lib/history";
 import { formatSql } from "./lib/sql";
+import { markTutorialSeen, tutorialSeen } from "./lib/tutorial";
 import { useTheme } from "./lib/theme";
 import type { DatabaseDetail, DatabaseSummary, HealthResponse } from "./types/api";
 import type { AssistantMessage, ChatMessage, Conversation, Conversations } from "./types/chat";
@@ -40,6 +42,9 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const [tutorialDone, setTutorialDone] = useState(tutorialSeen);
+  const [tour, setTour] = useState<{ mode: "steps" | "overview"; run: number } | null>(null);
 
   useEffect(() => saveConversations(conversations), [conversations]);
 
@@ -97,6 +102,30 @@ export default function App() {
     }
     return null;
   }, [messages]);
+
+  // The guide points at the first finished answer of the open chat; only that answer carries the data-tour targets.
+  const tourAnswerId = useMemo(
+    () => messages.find((m) => m.role === "assistant" && m.status === "done")?.id ?? null,
+    [messages]
+  );
+
+  useEffect(() => {
+    if (!tutorialDone && tourAnswerId) setTour((t) => t ?? { mode: "steps", run: 0 });
+  }, [tutorialDone, tourAnswerId]);
+
+  // Switching chats removes the answer the steps point at.
+  useEffect(() => setTour((t) => (t?.mode === "steps" ? null : t)), [conversation?.id]);
+
+  const openGuide = () => setTour((t) => ({ mode: tourAnswerId ? "steps" : "overview", run: (t?.run ?? 0) + 1 }));
+
+  const closeGuide = () => {
+    // The overview is not the real tour, so the first answer still gets the anchored steps.
+    if (tour?.mode === "steps") {
+      markTutorialSeen();
+      setTutorialDone(true);
+    }
+    setTour(null);
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -230,6 +259,7 @@ export default function App() {
             onClick={() => setDrawerOpen(true)}
             className="-ml-1.5 rounded-md p-1.5 text-muted hover:bg-sunken hover:text-ink lg:hidden"
             aria-label="Open databases and schema"
+            data-tour="schema-toggle"
           >
             <IconMenu size={17} />
           </button>
@@ -244,6 +274,15 @@ export default function App() {
           >
             <IconHistory size={14} />
             History
+          </button>
+          <button
+            type="button"
+            onClick={openGuide}
+            data-tour="guide"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink"
+          >
+            <IconHelp size={14} />
+            <span className="sr-only sm:not-sr-only">Guide</span>
           </button>
           {messages.length > 0 && (
             <button
@@ -276,6 +315,7 @@ export default function App() {
                         onRetry={() => retry(m)}
                         onSqlChange={(sql) => conversation && patch(conversation.id, m.id, { sql, result: undefined, execError: undefined })}
                         onToggleEdit={() => conversation && patch(conversation.id, m.id, { editing: !m.editing })}
+                        tourTarget={m.id === tourAnswerId}
                       />
                     </li>
                   )
@@ -315,6 +355,8 @@ export default function App() {
           setActiveByDb({});
         }}
       />
+
+      {tour && <Coachmark key={tour.run} mode={tour.mode} onClose={closeGuide} />}
 
       {detail && (
         <ErdDialog
