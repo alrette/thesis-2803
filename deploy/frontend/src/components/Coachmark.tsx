@@ -23,46 +23,78 @@ const isVisible = (el: Element) => {
   return r.width > 0 && r.height > 0;
 };
 
-// The schema tree renders twice (desktop sidebar and mobile drawer), so pick the copy on screen.
+// Sidebar controls render twice (desktop sidebar and mobile drawer), so pick the copy on screen.
 const find = (name: string) => [...document.querySelectorAll(`[data-tour="${name}"]`)].find(isVisible) ?? null;
 
-const STEPS: (() => Target)[] = [
-  () => ({
-    el: find("edit"),
-    text: "This SQL is editable. Click Edit to change it before running.",
-    sides: ["bottom", "top"],
-  }),
-  () => ({
-    el: find("run"),
-    text: "Run executes the SQL on the database and shows the result table.",
-    sides: ["bottom", "top"],
-  }),
-  () => {
-    const tree = find("schema");
-    if (tree) {
-      return {
-        el: tree.querySelector("[data-picked]") ?? tree,
-        text: "Tables the model used are highlighted in the schema on the left.",
-        sides: ["right", "bottom", "top"],
-      };
-    }
-    const toggle = find("schema-toggle");
-    return {
-      el: toggle,
-      text: toggle
-        ? "Tables the model used are highlighted in the schema. Open it with this button."
-        : "Tables the model used are highlighted in the schema panel.",
-      sides: ["bottom", "top"],
-    };
+interface Step {
+  /** data-tour name, or a lookup for targets that live inside another one. */
+  target: string | (() => Element | null);
+  text: string;
+  sides?: Side[];
+  /** Used when the target is hidden, e.g. sidebar controls that sit in the drawer on small screens. */
+  fallback?: { target: string; text: string };
+}
+
+const SIDEBAR: Side[] = ["right", "bottom", "top"];
+
+const INTRO: Step[] = [
+  {
+    target: "db",
+    text: "Pick the database to ask about. Each one is a separate Spider database with its own tables.",
+    sides: SIDEBAR,
+    fallback: {
+      target: "schema-toggle",
+      text: "This menu holds the database picker, the schema of the current database, and its ERD.",
+    },
   },
+  {
+    target: "schema",
+    text: "Every table and column of this database. Click a table to show or hide its columns.",
+    sides: SIDEBAR,
+  },
+  { target: "erd", text: "View ERD opens a diagram of the tables and the foreign keys that link them.", sides: SIDEBAR },
+  { target: "composer", text: "Type your question in plain English. Enter sends it, Shift+Enter adds a new line.", sides: ["top"] },
+  { target: "suggestions", text: "Not sure what to ask? Pick one of the sample questions for this database.", sides: ["top"] },
+  { target: "history", text: "Your chats are saved in this browser. Open an earlier one from History." },
+  { target: "theme", text: "Switch between the light and dark theme.", sides: ["right", "top"] },
+  { target: "guide", text: "Open this guide again at any time." },
 ];
 
-const OVERVIEW = (): Target => ({ el: find("guide"), text: "", sides: ["bottom"] });
+const ANSWER: Step[] = [
+  { target: "sql", text: "This is the SQL the model wrote for your question.", sides: ["bottom", "top"] },
+  { target: "edit", text: "This SQL is editable. Click Edit to change it before running." },
+  { target: "run", text: "Run executes the SQL on the database and shows the result table under the answer." },
+  {
+    target: "trace",
+    text: "Click here to see how the answer was built: tables picked, example questions used, and the schema sent to the model.",
+    sides: ["bottom", "top"],
+  },
+  {
+    target: () => find("schema")?.querySelector("[data-picked]") ?? null,
+    text: "Tables the model used are highlighted in the schema on the left.",
+    sides: SIDEBAR,
+    fallback: {
+      target: "schema-toggle",
+      text: "Tables the model used are highlighted in the schema. Open it with this button.",
+    },
+  },
+  { target: "new-chat", text: "Start a fresh chat on the same database. This one stays in History." },
+];
+
+export type TourKind = "intro" | "answer" | "full";
+const TOURS: Record<TourKind, Step[]> = { intro: INTRO, answer: ANSWER, full: [...INTRO, ...ANSWER] };
+
+function resolveStep(step: Step): Target | null {
+  const el = typeof step.target === "string" ? find(step.target) : step.target();
+  if (el) return { el, text: step.text, sides: step.sides ?? ["bottom", "top"] };
+  const alt = step.fallback && find(step.fallback.target);
+  return alt ? { el: alt, text: step.fallback!.text, sides: ["bottom", "top"] } : null;
+}
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-function place(rect: DOMRect | null, w: number, h: number, sides: Side[], withArrow: boolean): Pos {
+function place(rect: DOMRect | null, w: number, h: number, sides: Side[]): Pos {
   const vw = document.documentElement.clientWidth;
   const vh = document.documentElement.clientHeight;
   const clampX = (x: number) => clamp(x, MARGIN, vw - w - MARGIN);
@@ -82,11 +114,11 @@ function place(rect: DOMRect | null, w: number, h: number, sides: Side[], withAr
 
   if (side === "right") {
     const top = clampY(cy - h / 2);
-    return { top, left: rect.right + GAP, side: withArrow ? side : null, arrow: clamp(cy - top, 14, h - 14) };
+    return { top, left: rect.right + GAP, side, arrow: clamp(cy - top, 14, h - 14) };
   }
   const left = clampX(cx - w / 2);
   const top = clampY(side === "bottom" ? rect.bottom + GAP : rect.top - GAP - h);
-  return { top, left, side: withArrow ? side : null, arrow: clamp(cx - left, 14, w - 14) };
+  return { top, left, side, arrow: clamp(cx - left, 14, w - 14) };
 }
 
 const ARROW: Record<Side, (at: number) => { cls: string; style: CSSProperties }> = {
@@ -96,13 +128,16 @@ const ARROW: Record<Side, (at: number) => { cls: string; style: CSSProperties }>
 };
 
 interface CoachmarkProps {
-  mode: "steps" | "overview";
+  kind: TourKind;
   onClose: () => void;
 }
 
 /* Non-modal guide: a small box pinned next to the control it explains, with no backdrop. */
-export function Coachmark({ mode, onClose }: CoachmarkProps) {
-  const [step, setStep] = useState(0);
+export function Coachmark({ kind, onClose }: CoachmarkProps) {
+  // Steps whose control isn't on screen (no suggestions, sidebar hidden on phones) are dropped up front,
+  // so the counter matches what the user actually walks through.
+  const [steps] = useState(() => TOURS[kind].filter((s) => resolveStep(s)));
+  const [index, setIndex] = useState(0);
 
   // Read during the first render, before the box takes focus, so closing hands it back (usually to the composer).
   const [previous] = useState(() => document.activeElement as HTMLElement | null);
@@ -111,6 +146,10 @@ export function Coachmark({ mode, onClose }: CoachmarkProps) {
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [previous]);
+
+  useEffect(() => {
+    if (steps.length === 0) onClose();
+  }, [steps, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -122,52 +161,21 @@ export function Coachmark({ mode, onClose }: CoachmarkProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  if (mode === "overview") {
-    const wide = window.matchMedia?.("(min-width: 64rem)").matches ?? true;
-    return (
-      <Box key="overview" resolve={OVERVIEW} withArrow={false} label="Quick guide">
-        {(primaryRef) => (
-          <>
-            <p className="text-[13px] font-medium text-ink">How this workbench works</p>
-            <ul className="mt-2 list-disc space-y-1.5 pl-4 text-[13.5px] leading-snug text-ink marker:text-faint">
-              <li>The SQL in each answer is editable. Click Edit to change it before running.</li>
-              <li>Run executes the SQL on the database and shows the result table.</li>
-              <li>
-                {wide
-                  ? "Tables the model used are highlighted in the schema on the left."
-                  : "Tables the model used are highlighted in the schema, opened with the menu button at the top left."}
-              </li>
-            </ul>
-            <div className="mt-3 flex justify-end">
-              <PrimaryButton ref={primaryRef} onClick={onClose}>
-                Got it
-              </PrimaryButton>
-            </div>
-          </>
-        )}
-      </Box>
-    );
-  }
-
-  const last = step === STEPS.length - 1;
+  if (steps.length === 0) return null;
+  const last = index === steps.length - 1;
   return (
-    <Box key={step} resolve={STEPS[step]} withArrow label={`Quick guide, step ${step + 1} of ${STEPS.length}`}>
+    <Box key={index} step={steps[index]} label={`Guide, step ${index + 1} of ${steps.length}`}>
       {(primaryRef, text) => (
         <>
           <p className="text-[14px] leading-snug text-ink">{text}</p>
-          <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[12px] text-muted tabular-nums">
-              {step + 1} of {STEPS.length}
+              {index + 1} of {steps.length}
             </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md px-2 py-1 text-[12.5px] text-muted transition-colors hover:bg-sunken hover:text-ink pointer-coarse:min-h-11"
-              >
-                Skip
-              </button>
-              <PrimaryButton ref={primaryRef} onClick={last ? onClose : () => setStep(step + 1)}>
+            <div className="flex items-center gap-1">
+              <QuietButton onClick={onClose}>Skip</QuietButton>
+              {index > 0 && <QuietButton onClick={() => setIndex(index - 1)}>Back</QuietButton>}
+              <PrimaryButton ref={primaryRef} onClick={last ? onClose : () => setIndex(index + 1)}>
                 {last ? "Got it" : "Next"}
               </PrimaryButton>
             </div>
@@ -178,21 +186,31 @@ export function Coachmark({ mode, onClose }: CoachmarkProps) {
   );
 }
 
+function QuietButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md px-2 py-1 text-[12.5px] text-muted transition-colors hover:bg-sunken hover:text-ink pointer-coarse:min-h-11"
+    >
+      {children}
+    </button>
+  );
+}
+
 function Box({
-  resolve,
-  withArrow,
+  step,
   label,
   children,
 }: {
-  resolve: () => Target;
-  withArrow: boolean;
+  step: Step;
   label: string;
   children: (primaryRef: RefObject<HTMLButtonElement | null>, text: string) => ReactNode;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<Pos | null>(null);
-  const [text, setText] = useState(() => resolve().text);
+  const [text, setText] = useState(() => resolveStep(step)?.text ?? step.text);
 
   // Re-measured every frame while open: scroll, resize, the answer's entry animation and
   // content changing above the target all move it, and none of them fire one common event.
@@ -201,12 +219,12 @@ function Box({
     let first = true;
     let last = "";
     const tick = () => {
-      const target = resolve();
+      const target = resolveStep(step) ?? { el: null, text: step.text, sides: ["bottom"] as Side[] };
       const box = boxRef.current;
       if (box) {
         if (first && target.el) target.el.scrollIntoView({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
         first = false;
-        const next = place(target.el?.getBoundingClientRect() ?? null, box.offsetWidth, box.offsetHeight, target.sides, withArrow);
+        const next = place(target.el?.getBoundingClientRect() ?? null, box.offsetWidth, box.offsetHeight, target.sides);
         const key = `${next.top}|${next.left}|${next.side}|${next.arrow}|${target.text}`;
         if (key !== last) {
           last = key;
@@ -218,7 +236,7 @@ function Box({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [resolve, withArrow]);
+  }, [step]);
 
   // Focus waits for the first placement: the box is visibility:hidden until then and can't take focus.
   const placed = pos !== null;

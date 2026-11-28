@@ -85,6 +85,7 @@ export function Composer({ dbName, disabledReason, busy, onSend, draft, onDraftC
       )}
 
       <form
+        data-tour="composer"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
@@ -120,6 +121,7 @@ export function Composer({ dbName, disabledReason, busy, onSend, draft, onDraftC
                 onClick={() => setShowSuggestions((v) => !v)}
                 aria-expanded={showSuggestions}
                 aria-controls="suggestion-list"
+                data-tour="suggestions"
                 className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[12.5px] transition-colors hover:bg-sunken hover:text-ink ${
                   showSuggestions ? "text-ink" : "text-muted"
                 }`}

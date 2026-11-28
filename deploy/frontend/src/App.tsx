@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Answer } from "./components/Answer";
-import { Coachmark } from "./components/Coachmark";
+import { Coachmark, type TourKind } from "./components/Coachmark";
 import { Composer } from "./components/Composer";
 import { ErdDialog } from "./components/ErdDialog";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -43,8 +43,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const [tutorialDone, setTutorialDone] = useState(tutorialSeen);
-  const [tour, setTour] = useState<{ mode: "steps" | "overview"; run: number } | null>(null);
+  const [seen, setSeen] = useState(() => ({ intro: tutorialSeen("intro"), answer: tutorialSeen("answer") }));
+  const [tour, setTour] = useState<{ kind: TourKind; run: number } | null>(null);
 
   useEffect(() => saveConversations(conversations), [conversations]);
 
@@ -109,21 +109,16 @@ export default function App() {
     [messages]
   );
 
-  useEffect(() => {
-    if (!tutorialDone && tourAnswerId) setTour((t) => t ?? { mode: "steps", run: 0 });
-  }, [tutorialDone, tourAnswerId]);
+  // Switching chats removes the answer the answer steps point at.
+  useEffect(() => setTour((t) => (t && t.kind !== "intro" ? null : t)), [conversation?.id]);
 
-  // Switching chats removes the answer the steps point at.
-  useEffect(() => setTour((t) => (t?.mode === "steps" ? null : t)), [conversation?.id]);
-
-  const openGuide = () => setTour((t) => ({ mode: tourAnswerId ? "steps" : "overview", run: (t?.run ?? 0) + 1 }));
+  // With a finished answer on screen the guide covers everything; before that, only the parts that exist yet.
+  const openGuide = () => setTour((t) => ({ kind: tourAnswerId ? "full" : "intro", run: (t?.run ?? 0) + 1 }));
 
   const closeGuide = () => {
-    // The overview is not the real tour, so the first answer still gets the anchored steps.
-    if (tour?.mode === "steps") {
-      markTutorialSeen();
-      setTutorialDone(true);
-    }
+    if (tour?.kind !== "answer") markTutorialSeen("intro");
+    if (tour?.kind !== "intro") markTutorialSeen("answer");
+    setSeen((s) => ({ intro: s.intro || tour?.kind !== "answer", answer: s.answer || tour?.kind !== "intro" }));
     setTour(null);
   };
 
@@ -206,6 +201,13 @@ export default function App() {
         ? "Waiting for the database schema"
         : null;
 
+  // First visit: the intro once the app can take a question; then the answer steps on the first finished answer.
+  useEffect(() => {
+    if (tour) return;
+    if (!seen.intro && !disabledReason) setTour({ kind: "intro", run: 0 });
+    else if (!seen.answer && tourAnswerId) setTour({ kind: "answer", run: 0 });
+  }, [tour, seen, disabledReason, tourAnswerId]);
+
   const sidebar = (
     <Sidebar
       databases={databases}
@@ -270,6 +272,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
+            data-tour="history"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink"
           >
             <IconHistory size={14} />
@@ -288,6 +291,7 @@ export default function App() {
             <button
               type="button"
               onClick={newChat}
+              data-tour="new-chat"
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-sunken hover:text-ink"
             >
               <IconPlus size={13} />
@@ -356,7 +360,7 @@ export default function App() {
         }}
       />
 
-      {tour && <Coachmark key={tour.run} mode={tour.mode} onClose={closeGuide} />}
+      {tour && <Coachmark key={`${tour.kind}-${tour.run}`} kind={tour.kind} onClose={closeGuide} />}
 
       {detail && (
         <ErdDialog

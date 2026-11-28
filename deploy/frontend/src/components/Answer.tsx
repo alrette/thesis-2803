@@ -10,7 +10,7 @@ interface AnswerProps {
   onRetry: () => void;
   onSqlChange: (sql: string) => void;
   onToggleEdit: () => void;
-  /** Marks Edit and Run as coachmark targets; set on one answer only so each data-tour value is unique. */
+  /** Marks this answer's controls as guide targets; set on one answer only so each data-tour value is unique. */
   tourTarget?: boolean;
 }
 
@@ -48,7 +48,7 @@ export function Answer({ msg, onRun, onRetry, onSqlChange, onToggleEdit, tourTar
 
   return (
     <div className="anim-rise">
-      <div className="overflow-hidden rounded-md border border-line bg-surface">
+      <div className="overflow-hidden rounded-md border border-line bg-surface" data-tour={tourTarget ? "sql" : undefined}>
         <div className="flex items-center justify-between gap-2 border-b border-line py-1.5 pr-1.5 pl-3.5">
           <span className="text-[12px] font-medium text-muted">SQL{msg.editing && ", editing"}</span>
           <div className="flex items-center gap-0.5">
@@ -95,12 +95,12 @@ export function Answer({ msg, onRun, onRetry, onSqlChange, onToggleEdit, tourTar
       </div>
 
       <ResultsTable result={msg.result} error={msg.execError} />
-      {msg.generation && <Trace msg={msg} />}
+      {msg.generation && <Trace msg={msg} tourTarget={tourTarget} />}
     </div>
   );
 }
 
-function Trace({ msg }: { msg: AssistantMessage }) {
+function Trace({ msg, tourTarget }: { msg: AssistantMessage; tourTarget?: boolean }) {
   const [open, setOpen] = useState(false);
   const g = msg.generation!;
   const picked = g.detected_tables.join(", ");
@@ -111,6 +111,7 @@ function Trace({ msg }: { msg: AssistantMessage }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        data-tour={tourTarget ? "trace" : undefined}
         className="inline-flex items-center gap-1 rounded-md py-0.5 pr-1.5 text-[12.5px] text-muted transition-colors hover:text-ink"
       >
         <IconChevron size={11} className={`transition-transform duration-200 ${open ? "rotate-90" : ""}`} />

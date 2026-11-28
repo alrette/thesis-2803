@@ -38,6 +38,7 @@ export function Sidebar(props: SidebarProps) {
         <div className="relative">
           <select
             id="db-select"
+            data-tour="db"
             value={selectedDbId ?? ""}
             onChange={(e) => props.onSelectDb(e.target.value)}
             disabled={databases.length === 0}
@@ -68,6 +69,7 @@ export function Sidebar(props: SidebarProps) {
         <button
           type="button"
           onClick={props.onOpenErd}
+          data-tour="erd"
           disabled={!detail}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-muted transition-colors hover:bg-sunken hover:text-ink disabled:opacity-50"
         >
@@ -132,6 +134,7 @@ function Footer({
       <button
         type="button"
         onClick={onToggleTheme}
+        data-tour="theme"
         className="shrink-0 rounded-md p-1.5 text-muted transition-colors hover:bg-sunken hover:text-ink"
         aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
       >
